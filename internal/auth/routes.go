@@ -13,5 +13,13 @@ func RegisterRoutes(router *gin.RouterGroup, handler *Handler) {
 		auth.POST("/signup", handler.Signup)
 		auth.POST("/login", handler.Login)
 		auth.GET("/me", middleware.AuthMiddleware(), handler.Me)
+
+		// Google OAuth
+		auth.GET("/google", handler.GoogleLogin)
+		auth.GET("/google/callback", handler.GoogleCallback)
+
+		// Spotify OAuth
+		auth.GET("/spotify", handler.SpotifyLogin)
+		auth.GET("/spotify/callback", handler.SpotifyCallback)
 	}
 }

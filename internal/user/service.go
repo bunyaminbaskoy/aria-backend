@@ -25,7 +25,22 @@ func (s *Service) GetUserByEmail(email string) (*User, error) {
 	return s.repo.FindByEmail(email)
 }
 
+// GetUserByGoogleID returns a user by their Google OAuth ID.
+func (s *Service) GetUserByGoogleID(googleID string) (*User, error) {
+	return s.repo.FindByGoogleID(googleID)
+}
+
+// GetUserBySpotifyID returns a user by their Spotify OAuth ID.
+func (s *Service) GetUserBySpotifyID(spotifyID string) (*User, error) {
+	return s.repo.FindBySpotifyID(spotifyID)
+}
+
 // CreateUser creates a new user in the database.
 func (s *Service) CreateUser(user *User) error {
 	return s.repo.Create(user)
+}
+
+// UpdateUser saves changes to an existing user.
+func (s *Service) UpdateUser(user *User) error {
+	return s.repo.Update(user)
 }
