@@ -1,18 +1,83 @@
-# aria-backend
+# 🎵 Aria — RAG Tabanlı Müzik Kürasyonu Sistemi
 
-Music Curation API — Modüler Monolit mimaride Go (Gin) backend uygulaması.
+Modular Monolith mimarisinde Go (Golang) ile geliştirilmiş bir müzik kürasyonu backend API'si.
 
-## Tech Stack
+## 🏗️ Teknoloji Stack
 
-- **Go 1.26** + **Gin** (HTTP framework)
-- **GORM** + **PostgreSQL** (ORM & veritabanı)
-- **JWT** (golang-jwt/v5) — kimlik doğrulama
-- **OAuth 2.0** (golang.org/x/oauth2) — Google & Spotify entegrasyonu
-- **Docker** — PostgreSQL container
+| Teknoloji | Kullanım |
+|-----------|----------|
+| Go 1.26 | Ana programlama dili |
+| Gin | HTTP web framework |
+| GORM | ORM (Object-Relational Mapping) |
+| PostgreSQL | Ana veritabanı |
+| JWT | Token tabanlı kimlik doğrulama |
+| Bcrypt | Şifre hashleme |
+| OAuth 2.0 | Google & Spotify kimlik doğrulama |
+| Redis | Cache & oturum yönetimi (yakında) |
 
-## Kurulum
+## 📁 Proje Yapısı
 
-### 1. PostgreSQL (Docker ile)
+```
+aria-backend/
+├── cmd/
+│   └── api/
+│       └── main.go              # Uygulama giriş noktası
+├── internal/
+│   ├── auth/
+│   │   ├── dto.go               # Request/Response yapıları
+│   │   ├── handler.go           # Signup, Login, Me handler'ları
+│   │   ├── oauth_google.go      # Google OAuth 2.0 config + handler
+│   │   ├── oauth_spotify.go     # Spotify OAuth 2.0 config + handler
+│   │   └── routes.go            # Auth route tanımları
+│   ├── middleware/
+│   │   └── auth.go              # JWT doğrulama middleware'i
+│   ├── music/
+│   │   └── model.go             # Spotify entegrasyonu (placeholder)
+│   ├── seeder/
+│   │   └── seeder.go            # Örnek kullanıcı seeder'ı
+│   └── user/
+│       ├── handler.go           # User HTTP handler'ları
+│       ├── model.go             # GORM User modeli
+│       ├── repository.go        # Veritabanı erişim katmanı
+│       ├── routes.go            # User route tanımları
+│       └── service.go           # İş mantığı katmanı
+├── pkg/
+│   ├── database/
+│   │   └── postgres.go          # PostgreSQL bağlantısı
+│   └── utils/
+│       ├── jwt.go               # JWT üretimi ve doğrulaması
+│       └── password.go          # Bcrypt hash/kontrol
+├── .env.example                 # Örnek ortam değişkenleri
+├── .gitignore
+├── go.mod
+└── go.sum
+```
+
+## 🚀 Kurulum
+
+### Gereksinimler
+
+- Go 1.22+
+- PostgreSQL (veya Docker)
+
+### Adımlar
+
+**1. Repoyu klonla:**
+
+```bash
+git clone https://github.com/KULLANICI_ADIN/aria-backend.git
+cd aria-backend
+```
+
+**2. Ortam değişkenlerini ayarla:**
+
+```bash
+cp .env.example .env
+```
+
+`.env` dosyasını düzenleyip kendi bilgilerini gir.
+
+**3. PostgreSQL'i başlat (Docker ile):**
 
 ```bash
 docker run -d \
@@ -24,57 +89,96 @@ docker run -d \
   postgres:16-alpine
 ```
 
-### 2. Environment Variables
+Veya manuel olarak veritabanını oluştur:
 
-`.env.example` dosyasını `.env` olarak kopyala ve değerleri doldur:
-
-```bash
-cp .env.example .env
+```sql
+CREATE DATABASE music_curation;
 ```
 
-### 3. Uygulamayı Başlat
+**4. Bağımlılıkları indir:**
 
 ```bash
-go run ./cmd/api/main.go
+go mod tidy
 ```
 
-Uygulama `http://localhost:8080` üzerinde çalışacaktır.
+**5. Sunucuyu başlat:**
 
-## API Endpoints
+```bash
+go run cmd/api/main.go
+```
 
-### Auth (Kimlik Doğrulama)
+Sunucu `http://localhost:8080` adresinde çalışmaya başlayacak.
 
-| Method | Path | Auth | Açıklama |
-|--------|------|------|----------|
-| `POST` | `/api/v1/auth/signup` | ❌ | Email + şifre ile kayıt |
-| `POST` | `/api/v1/auth/login` | ❌ | Email + şifre ile giriş |
-| `GET` | `/api/v1/auth/me` | ✅ JWT | Aktif kullanıcı bilgisi |
-| `GET` | `/api/v1/auth/google` | ❌ | Google OAuth — giriş ekranına yönlendirir |
-| `GET` | `/api/v1/auth/google/callback` | ❌ | Google OAuth callback — JWT döner |
-| `GET` | `/api/v1/auth/spotify` | ❌ | Spotify OAuth — giriş ekranına yönlendirir |
-| `GET` | `/api/v1/auth/spotify/callback` | ❌ | Spotify OAuth callback — JWT döner |
+## 📡 API Endpoint'leri
 
-### Users (Kullanıcılar)
+### Auth — Public
 
-| Method | Path | Auth | Açıklama |
-|--------|------|------|----------|
-| `GET` | `/api/v1/users` | ✅ JWT | Tüm kullanıcıları listele |
-| `GET` | `/api/v1/users/:id` | ✅ JWT | Tek kullanıcı getir |
+| Method | Endpoint | Açıklama |
+|--------|----------|----------|
+| `POST` | `/api/v1/auth/signup` | Yeni kullanıcı kaydı |
+| `POST` | `/api/v1/auth/login` | Giriş yap, JWT al |
+| `GET` | `/api/v1/auth/me` | Mevcut kullanıcıyı getir 🔒 |
+
+### Auth — OAuth 2.0
+
+| Method | Endpoint | Açıklama |
+|--------|----------|----------|
+| `GET` | `/api/v1/auth/google` | Google ile giriş — consent ekranına yönlendirir |
+| `GET` | `/api/v1/auth/google/callback` | Google callback — JWT döner |
+| `GET` | `/api/v1/auth/spotify` | Spotify ile giriş — authorize sayfasına yönlendirir |
+| `GET` | `/api/v1/auth/spotify/callback` | Spotify callback — JWT döner |
+
+### Users — Protected 🔒
+
+| Method | Endpoint | Açıklama |
+|--------|----------|----------|
+| `GET` | `/api/v1/users` | Tüm kullanıcıları listele |
+| `GET` | `/api/v1/users/:id` | ID ile kullanıcı getir |
 
 ### Health
 
-| Method | Path | Açıklama |
-|--------|------|----------|
-| `GET` | `/health` | API durum kontrolü |
+| Method | Endpoint | Açıklama |
+|--------|----------|----------|
+| `GET` | `/health` | API sağlık kontrolü |
 
-## OAuth Entegrasyonu (Yeni Eklenen)
+## 📝 Kullanım Örnekleri
+
+**Kayıt ol:**
+
+```bash
+curl -X POST http://localhost:8080/api/v1/auth/signup \
+  -H "Content-Type: application/json" \
+  -d '{"email":"user@example.com","password":"123456"}'
+```
+
+**Giriş yap:**
+
+```bash
+curl -X POST http://localhost:8080/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"user@example.com","password":"123456"}'
+```
+
+**Korumalı endpoint'e erişim:**
+
+```bash
+curl http://localhost:8080/api/v1/users \
+  -H "Authorization: Bearer BURAYA_JWT_TOKEN"
+```
+
+**Google ile giriş:**
+Tarayıcıda aç: `http://localhost:8080/api/v1/auth/google`
+
+**Spotify ile giriş:**
+Tarayıcıda aç: `http://127.0.0.1:8080/api/v1/auth/spotify`
+
+## 🔐 OAuth 2.0 Entegrasyonu
 
 ### Google OAuth 2.0
 
-- Kullanıcı `/api/v1/auth/google` adresine gider → Google consent ekranına yönlendirilir
+- Kullanıcı `/api/v1/auth/google` → Google consent ekranına yönlendirilir
 - Giriş sonrası callback'e döner → Google'dan email ve google_id alınır
-- DB'de kullanıcı varsa eşleştirilir, yoksa yeni oluşturulur
-- JWT token döner
+- DB'de kullanıcı varsa eşleştirilir, yoksa yeni oluşturulur → JWT döner
 
 **Gerekli env değişkenleri:**
 ```
@@ -85,11 +189,10 @@ GOOGLE_REDIRECT_URL=http://localhost:8080/api/v1/auth/google/callback
 
 ### Spotify OAuth 2.0
 
-- Kullanıcı `/api/v1/auth/spotify` adresine gider → Spotify authorize sayfasına yönlendirilir
-- Giriş sonrası callback'e döner → Spotify'dan email, spotify_id, access_token, refresh_token alınır
-- DB'de kullanıcı varsa eşleştirilir ve token'lar güncellenir, yoksa yeni oluşturulur
-- JWT token döner
-- Spotify `access_token` ve `refresh_token` DB'ye kaydedilir (ileride Spotify API çağrıları için)
+- Kullanıcı `/api/v1/auth/spotify` → Spotify authorize sayfasına yönlendirilir
+- Giriş sonrası callback'e döner → email, spotify_id, access_token, refresh_token alınır
+- DB'de kullanıcı varsa eşleştirilir ve token'lar güncellenir, yoksa yeni oluşturulur → JWT döner
+- Spotify `access_token` ve `refresh_token` DB'ye kaydedilir (Spotify API çağrıları için)
 
 **Gerekli env değişkenleri:**
 ```
@@ -98,7 +201,7 @@ SPOTIFY_CLIENT_SECRET=...
 SPOTIFY_REDIRECT_URL=http://127.0.0.1:8080/api/v1/auth/spotify/callback
 ```
 
-> **Not:** Spotify, localhost yerine `127.0.0.1` kullanılmasını gerektiriyor. Test ederken tarayıcıda da `127.0.0.1` kullanın.
+> **Not:** Spotify, `localhost` yerine `127.0.0.1` kullanılmasını gerektiriyor. Test ederken tarayıcıda da `127.0.0.1` kullanın.
 
 **Spotify OAuth Scopes:**
 - `user-read-email` — kullanıcı emaili
@@ -108,60 +211,58 @@ SPOTIFY_REDIRECT_URL=http://127.0.0.1:8080/api/v1/auth/spotify/callback
 
 ### OAuth Kullanıcı Eşleştirme Mantığı
 
-1. Provider ID ile DB'de arama yapılır (google_id veya spotify_id)
+1. Provider ID (google_id / spotify_id) ile DB'de arama yapılır
 2. Bulunursa → mevcut kullanıcı döner
 3. Bulunamazsa → email ile arama yapılır
 4. Email varsa → provider ID mevcut hesaba bağlanır
 5. Email de yoksa → yeni kullanıcı oluşturulur
 
-## Proje Yapısı
+## 🗃️ Veritabanı Şeması
 
-```
-aria-backend/
-├── cmd/api/main.go                    # Uygulama giriş noktası
-├── internal/
-│   ├── auth/
-│   │   ├── dto.go                     # Request/Response DTO'ları
-│   │   ├── handler.go                 # Signup, Login, Me handler'ları
-│   │   ├── oauth_google.go            # Google OAuth config + handler
-│   │   ├── oauth_spotify.go           # Spotify OAuth config + handler
-│   │   └── routes.go                  # Auth route tanımları
-│   ├── middleware/
-│   │   └── auth.go                    # JWT auth middleware
-│   ├── music/
-│   │   └── model.go                   # Müzik modelleri (TODO)
-│   ├── seeder/
-│   │   └── seeder.go                  # Seed data
-│   └── user/
-│       ├── model.go                   # User modeli
-│       ├── repository.go              # DB erişim katmanı
-│       ├── service.go                 # Business logic
-│       ├── handler.go                 # HTTP handler'lar
-│       └── routes.go                  # User route tanımları
-├── pkg/
-│   ├── database/
-│   │   └── postgres.go                # PostgreSQL bağlantısı
-│   └── utils/
-│       ├── jwt.go                     # JWT generate & validate
-│       └── password.go                # bcrypt hash & check
-├── go.mod
-├── go.sum
-├── .env.example
-└── .gitignore
-```
+### Users Tablosu
 
-## User Modeli
+| Alan | Tip | Açıklama |
+|------|-----|----------|
+| id | uint (PK) | Otomatik artan primary key |
+| email | string (Unique) | Kullanıcı e-postası |
+| password | string | Bcrypt ile hashlenmiş şifre (OAuth için opsiyonel) |
+| google_id | string? | Google OAuth ID (nullable) |
+| spotify_id | string? | Spotify OAuth ID (nullable) |
+| spotify_access_token | string? | Spotify API erişim token'ı (nullable) |
+| spotify_refresh_token | string? | Spotify token yenileme (nullable) |
+| created_at | timestamp | Oluşturulma tarihi |
+| updated_at | timestamp | Güncellenme tarihi |
 
-```go
-type User struct {
-    ID                  uint
-    Email               string   // Unique, zorunlu
-    Password            string   // Opsiyonel (OAuth kullanıcıları için boş)
-    GoogleID            *string  // Nullable — Google OAuth
-    SpotifyID           *string  // Nullable — Spotify OAuth
-    SpotifyAccessToken  *string  // Spotify API erişim token'ı
-    SpotifyRefreshToken *string  // Spotify token yenileme
-    CreatedAt           time.Time
-    UpdatedAt           time.Time
-}
-```
+## 🌱 Seeder
+
+Uygulama ilk başlatıldığında otomatik olarak 10 örnek kullanıcı oluşturur:
+
+| Email | Şifre |
+|-------|-------|
+| alice@example.com | password123 |
+| bob@example.com | password123 |
+| charlie@example.com | password123 |
+| ... | ... |
+
+Seeder idempotent'tır — tekrar çalıştırıldığında mevcut kullanıcıları tekrar eklemez.
+
+## 🔜 Yol Haritası
+
+- [x] Proje iskeleti & Auth (signup, login, me)
+- [x] Google OAuth 2.0 entegrasyonu
+- [x] Spotify OAuth 2.0 (Access & Refresh Token yönetimi)
+- [ ] Spotify API ile playlist oluşturma
+- [ ] Redis cache entegrasyonu
+- [ ] RAG tabanlı müzik öneri sistemi
+
+## 👥 Ekip
+
+| Görev | Durum |
+|-------|-------|
+| Proje iskeleti & Auth | ✅ Tamamlandı |
+| Google/Spotify OAuth | ✅ Tamamlandı |
+| Spotify API entegrasyonu | 🔜 Geliyor |
+
+## 📄 Lisans
+
+Bu proje özel kullanım içindir.
