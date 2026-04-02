@@ -11,7 +11,10 @@ type Repository interface {
 	Create(user *User) error
 	FindByEmail(email string) (*User, error)
 	FindByID(id uint) (*User, error)
+	FindByGoogleID(googleID string) (*User, error)
+	FindBySpotifyID(spotifyID string) (*User, error)
 	FindAll() ([]User, error)
+	Update(user *User) error
 }
 
 // repository is the GORM implementation of Repository.
@@ -55,9 +58,40 @@ func (r *repository) FindByID(id uint) (*User, error) {
 	return &user, nil
 }
 
+// FindByGoogleID looks up a user by their Google OAuth ID.
+func (r *repository) FindByGoogleID(googleID string) (*User, error) {
+	var user User
+	result := r.db.Where("google_id = ?", googleID).First(&user)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, result.Error
+	}
+	return &user, nil
+}
+
+// FindBySpotifyID looks up a user by their Spotify OAuth ID.
+func (r *repository) FindBySpotifyID(spotifyID string) (*User, error) {
+	var user User
+	result := r.db.Where("spotify_id = ?", spotifyID).First(&user)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, result.Error
+	}
+	return &user, nil
+}
+
 // FindAll returns all users from the database.
 func (r *repository) FindAll() ([]User, error) {
 	var users []User
 	result := r.db.Find(&users)
 	return users, result.Error
+}
+
+// Update saves changes to an existing user in the database.
+func (r *repository) Update(user *User) error {
+	return r.db.Save(user).Error
 }
