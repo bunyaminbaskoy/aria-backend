@@ -15,6 +15,7 @@ Modular Monolith mimarisinde Go (Golang) ile geliştirilmiş bir müzik kürasyo
 | OAuth 2.0 | Google & Spotify kimlik doğrulama |
 | Redis | Cache & oturum yönetimi (yakında) |
 
+
 ## 📁 Proje Yapısı
 
 ```
@@ -28,6 +29,7 @@ aria-backend/
 │   │   ├── handler.go           # Signup, Login, Me handler'ları
 │   │   ├── oauth_google.go      # Google OAuth 2.0 config + handler
 │   │   ├── oauth_spotify.go     # Spotify OAuth 2.0 config + handler
+
 │   │   └── routes.go            # Auth route tanımları
 │   ├── middleware/
 │   │   └── auth.go              # JWT doğrulama middleware'i
@@ -63,7 +65,6 @@ aria-backend/
 ### Adımlar
 
 **1. Repoyu klonla:**
-
 ```bash
 git clone https://github.com/KULLANICI_ADIN/aria-backend.git
 cd aria-backend
@@ -96,13 +97,11 @@ CREATE DATABASE music_curation;
 ```
 
 **4. Bağımlılıkları indir:**
-
 ```bash
 go mod tidy
 ```
 
 **5. Sunucuyu başlat:**
-
 ```bash
 go run cmd/api/main.go
 ```
@@ -112,6 +111,7 @@ Sunucu `http://localhost:8080` adresinde çalışmaya başlayacak.
 ## 📡 API Endpoint'leri
 
 ### Auth — Public
+
 
 | Method | Endpoint | Açıklama |
 |--------|----------|----------|
@@ -144,7 +144,6 @@ Sunucu `http://localhost:8080` adresinde çalışmaya başlayacak.
 ## 📝 Kullanım Örnekleri
 
 **Kayıt ol:**
-
 ```bash
 curl -X POST http://localhost:8080/api/v1/auth/signup \
   -H "Content-Type: application/json" \
@@ -152,7 +151,6 @@ curl -X POST http://localhost:8080/api/v1/auth/signup \
 ```
 
 **Giriş yap:**
-
 ```bash
 curl -X POST http://localhost:8080/api/v1/auth/login \
   -H "Content-Type: application/json" \
@@ -160,7 +158,6 @@ curl -X POST http://localhost:8080/api/v1/auth/login \
 ```
 
 **Korumalı endpoint'e erişim:**
-
 ```bash
 curl http://localhost:8080/api/v1/users \
   -H "Authorization: Bearer BURAYA_JWT_TOKEN"
@@ -216,7 +213,6 @@ SPOTIFY_REDIRECT_URL=http://127.0.0.1:8080/api/v1/auth/spotify/callback
 3. Bulunamazsa → email ile arama yapılır
 4. Email varsa → provider ID mevcut hesaba bağlanır
 5. Email de yoksa → yeni kullanıcı oluşturulur
-
 ## 🗃️ Veritabanı Şeması
 
 ### Users Tablosu
@@ -261,6 +257,7 @@ Seeder idempotent'tır — tekrar çalıştırıldığında mevcut kullanıcıla
 |-------|-------|
 | Proje iskeleti & Auth | ✅ Tamamlandı |
 | Google/Spotify OAuth | ✅ Tamamlandı |
+
 | Spotify API entegrasyonu | 🔜 Geliyor |
 
 ## 📄 Lisans
