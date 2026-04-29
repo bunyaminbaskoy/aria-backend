@@ -6,7 +6,7 @@ import (
 	"music-curation/internal/middleware"
 )
 
-// RegisterRoutes registers all auth routes to the given router group.
+// RegisterRoutes — Auth route'larını kaydeder.
 func RegisterRoutes(router *gin.RouterGroup, handler *Handler) {
 	auth := router.Group("/auth")
 	{
@@ -14,12 +14,16 @@ func RegisterRoutes(router *gin.RouterGroup, handler *Handler) {
 		auth.POST("/login", handler.Login)
 		auth.GET("/me", middleware.AuthMiddleware(), handler.Me)
 
-		// Google OAuth
+		// Google OAuth giriş
 		auth.GET("/google", handler.GoogleLogin)
 		auth.GET("/google/callback", handler.GoogleCallback)
 
-		// Spotify OAuth
+		// Spotify OAuth giriş
 		auth.GET("/spotify", handler.SpotifyLogin)
 		auth.GET("/spotify/callback", handler.SpotifyCallback)
+
+		// Token yönetimi
+		auth.POST("/refresh", handler.Refresh)
+		auth.POST("/logout", handler.Logout)
 	}
 }

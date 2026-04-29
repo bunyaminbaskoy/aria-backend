@@ -9,17 +9,17 @@ import (
 	"music-curation/pkg/utils"
 )
 
-// Handler holds dependencies for auth HTTP handlers.
+// Handler — Auth handler.
 type Handler struct {
 	userService *user.Service
 }
 
-// NewHandler creates a new auth handler.
+// NewHandler — Yeni handler oluşturur.
 func NewHandler(userService *user.Service) *Handler {
 	return &Handler{userService: userService}
 }
 
-// Signup handles POST /api/v1/auth/signup — registers a new user.
+// Signup — Yeni kullanıcı kaydeder.
 func (h *Handler) Signup(c *gin.Context) {
 	var req SignupRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -27,7 +27,7 @@ func (h *Handler) Signup(c *gin.Context) {
 		return
 	}
 
-	// Check if user already exists
+	// Kullanıcı var mı?
 	existingUser, err := h.userService.GetUserByEmail(req.Email)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
@@ -38,14 +38,14 @@ func (h *Handler) Signup(c *gin.Context) {
 		return
 	}
 
-	// Hash password
+	// Şifreyi hashle
 	hashedPassword, err := utils.HashPassword(req.Password)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to hash password"})
 		return
 	}
 
-	// Create user
+	// Kullanıcı oluştur
 	newUser := &user.User{
 		Email:    req.Email,
 		Password: hashedPassword,
@@ -55,8 +55,8 @@ func (h *Handler) Signup(c *gin.Context) {
 		return
 	}
 
-	// Generate JWT
-	token, err := utils.GenerateToken(newUser.ID, newUser.Email)
+	// Token çifti üret
+	tokenPair, err := utils.GenerateTokenPair(newUser.ID, newUser.Email)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
 		return
@@ -65,13 +65,14 @@ func (h *Handler) Signup(c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{
 		"message": "User registered successfully",
 		"data": AuthResponse{
-			Token: token,
-			User:  newUser,
+			AccessToken:  tokenPair.AccessToken,
+			RefreshToken: tokenPair.RefreshToken,
+			User:         newUser,
 		},
 	})
 }
 
-// Login handles POST /api/v1/auth/login — authenticates a user and returns a JWT.
+// Login — Kullanıcı girişi.
 func (h *Handler) Login(c *gin.Context) {
 	var req LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -79,7 +80,7 @@ func (h *Handler) Login(c *gin.Context) {
 		return
 	}
 
-	// Find user by email
+	// Email ile bul
 	foundUser, err := h.userService.GetUserByEmail(req.Email)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
@@ -90,14 +91,14 @@ func (h *Handler) Login(c *gin.Context) {
 		return
 	}
 
-	// Verify password
+	// Şifre kontrolü
 	if !utils.CheckPassword(req.Password, foundUser.Password) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid email or password"})
 		return
 	}
 
-	// Generate JWT
-	token, err := utils.GenerateToken(foundUser.ID, foundUser.Email)
+	// Token çifti üret
+	tokenPair, err := utils.GenerateTokenPair(foundUser.ID, foundUser.Email)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
 		return
@@ -106,13 +107,14 @@ func (h *Handler) Login(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"message": "Login successful",
 		"data": AuthResponse{
-			Token: token,
-			User:  foundUser,
+			AccessToken:  tokenPair.AccessToken,
+			RefreshToken: tokenPair.RefreshToken,
+			User:         foundUser,
 		},
 	})
 }
 
-// Me handles GET /api/v1/auth/me — returns the currently authenticated user.
+// Me — Mevcut kullanıcı bilgisi.
 func (h *Handler) Me(c *gin.Context) {
 	userID, exists := c.Get("userID")
 	if !exists {
