@@ -1,92 +1,117 @@
 package middleware
 
 import (
+	"context"
+	"fmt"
+	"log"
 	"net/http"
-	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/redis/go-redis/v9"
 )
 
-// visitor — IP başına istek sayacı.
-type visitor struct {
-	count    int
-	lastSeen time.Time
-}
-
-// rateLimiter — IP bazlı istek sınırlayıcı.
-type rateLimiter struct {
-	visitors map[string]*visitor
-	mu       sync.Mutex
-	limit    int
-	window   time.Duration
-}
-
-// newRateLimiter — Yeni sınırlayıcı oluşturur.
-func newRateLimiter(limit int, window time.Duration) *rateLimiter {
-	rl := &rateLimiter{
-		visitors: make(map[string]*visitor),
-		limit:    limit,
-		window:   window,
-	}
-	// Eski kayıtları temizle
-	go rl.cleanup()
-	return rl
-}
-
-// isAllowed — Limit aşıldı mı?
-func (rl *rateLimiter) isAllowed(ip string) bool {
-	rl.mu.Lock()
-	defer rl.mu.Unlock()
-
-	v, exists := rl.visitors[ip]
-	if !exists {
-		rl.visitors[ip] = &visitor{count: 1, lastSeen: time.Now()}
-		return true
-	}
-
-	// Süre geçti, sıfırla
-	if time.Since(v.lastSeen) > rl.window {
-		v.count = 1
-		v.lastSeen = time.Now()
-		return true
-	}
-
-	// Artır, kontrol et
-	v.count++
-	v.lastSeen = time.Now()
-	return v.count <= rl.limit
-}
-
-// cleanup — Eski kayıtları temizler.
-func (rl *rateLimiter) cleanup() {
-	ticker := time.NewTicker(5 * time.Minute)
-	defer ticker.Stop()
-
-	for range ticker.C {
-		rl.mu.Lock()
-		for ip, v := range rl.visitors {
-			if time.Since(v.lastSeen) > rl.window*2 {
-				delete(rl.visitors, ip)
-			}
-		}
-		rl.mu.Unlock()
-	}
-}
-
-// RateLimitMiddleware — Dakikada 60 istek sınırı.
-func RateLimitMiddleware() gin.HandlerFunc {
-	limiter := newRateLimiter(60, 1*time.Minute)
-
+// RateLimitMiddleware, Redis tabanlı sabit pencereli (fixed window)
+// rate limiting middleware'i üretir. Üst katmandaki AuthMiddleware
+// userID'yi context'e koymuş olmalıdır — bu middleware ondan SONRA
+// zincirlenmelidir.
+//
+// Algoritma (sabit pencere):
+//
+//	key   = "ratelimit:<scope>:<userID>"
+//	count = INCR(key)
+//	if count == 1 → EXPIRE(key, window)
+//	if count > limit → 429 Too Many Requests
+//
+// Sabit pencere, sliding window'dan daha basittir ve hafif şekilde
+// "sınırı kötüye kullanma" alanı bırakır (pencere bitiminde aniden
+// sıfırlanır), ancak Redis tarafında tek atomik komutla çalışır ve
+// 5/dakika gibi düşük limitler için fazlasıyla yeterlidir.
+//
+// Parametreler:
+//
+//	rdb    — paylaşılan Redis client (main.go'da yaratılır)
+//	scope  — limit anahtarındaki ayraç (örn. "generate", "search")
+//	limit  — pencere başına izin verilen istek sayısı
+//	window — pencere uzunluğu (örn. time.Minute)
+//
+// Hata politikası:
+//
+//	Redis erişilemezse fail-OPEN davranılır (uyarı log'lanır, istek
+//	geçirilir). Sebep: Redis blip'i uygulamanın tamamını çökertmesin.
+//	Auth her zaman aktif kalmaya devam eder; rate limit sadece bir
+//	abuse koruması katmanıdır, single source of truth değildir.
+func RateLimitMiddleware(rdb *redis.Client, scope string, limit int, window time.Duration) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		ip := c.ClientIP()
-
-		if !limiter.isAllowed(ip) {
-			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
-				"error": "Too many requests. Please try again later.",
-			})
+		userIDRaw, exists := c.Get("userID")
+		if !exists {
+			// AuthMiddleware bağlanmamışsa veya başarısızsa.
+			// Yine de defansif kontrol; konfig hatasını yakalar.
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Yetkilendirme bilgisi bulunamadı"})
+			c.Abort()
 			return
 		}
+		userID, ok := userIDRaw.(uint)
+		if !ok {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Yetkilendirme bilgisi geçersiz"})
+			c.Abort()
+			return
+		}
+
+		key := fmt.Sprintf("ratelimit:%s:%d", scope, userID)
+
+		// Redis çağrılarını request context'inden bağımsız, kısa bir
+		// timeout ile yap — request iptal edilse bile sayaç yine de
+		// güncellenmiş olur (state tutarlılığı için).
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+
+		count, err := rdb.Incr(ctx, key).Result()
+		if err != nil {
+			// Fail-open: log'la ve isteği geçir. Redis kapalıyken
+			// kullanıcıyı dışarıda bırakmak istemiyoruz.
+			log.Printf("⚠️  rate limit kontrolü başarısız (fail-open): scope=%s userID=%d err=%v", scope, userID, err)
+			c.Next()
+			return
+		}
+
+		// Sayaç yeni oluşturuldu — pencere TTL'i ata.
+		// EXPIRE çağrısı başarısız olsa bile (race condition), sayaç
+		// max ~Redis'in bekleme süresi kadar kalır; bir sonraki INCR
+		// tekrar EXPIRE'ı tetikler. Yine de hatayı log'luyoruz.
+		if count == 1 {
+			if err := rdb.Expire(ctx, key, window).Err(); err != nil {
+				log.Printf("⚠️  rate limit TTL ayarlanamadı: key=%s err=%v", key, err)
+			}
+		}
+
+		if count > int64(limit) {
+			// Pencerenin ne kadar kaldığını öğren — Retry-After header'ı
+			// için. TTL alınamazsa pencerenin tamamı kadar varsay.
+			ttl, ttlErr := rdb.TTL(ctx, key).Result()
+			if ttlErr != nil || ttl < 0 {
+				ttl = window
+			}
+			retryAfter := int(ttl.Seconds())
+			if retryAfter < 1 {
+				retryAfter = 1
+			}
+
+			c.Header("Retry-After", fmt.Sprintf("%d", retryAfter))
+			c.JSON(http.StatusTooManyRequests, gin.H{
+				"error":               "İstek limiti aşıldı, lütfen biraz sonra tekrar deneyin",
+				"limit":               limit,
+				"window_seconds":      int(window.Seconds()),
+				"retry_after_seconds": retryAfter,
+			})
+			c.Abort()
+			return
+		}
+
+		// Limit dahilinde — isteği bir sonraki handler'a geçir.
+		// Kalan kontör sayısını response header'ında bilgi olarak ver.
+		c.Header("X-RateLimit-Limit", fmt.Sprintf("%d", limit))
+		c.Header("X-RateLimit-Remaining", fmt.Sprintf("%d", int64(limit)-count))
 
 		c.Next()
 	}
