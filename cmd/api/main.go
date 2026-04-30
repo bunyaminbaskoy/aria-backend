@@ -15,6 +15,7 @@ import (
 	"music-curation/internal/pipeline"
 	"music-curation/internal/recommendation"
 	"music-curation/internal/seeder"
+	"music-curation/internal/spotify"
 	"music-curation/internal/user"
 	"music-curation/pkg/aiclient"
 	"music-curation/pkg/cache"
@@ -63,6 +64,8 @@ func main() {
 	userService := user.NewService(userRepo)
 	userHandler := user.NewHandler(userService)
 	authHandler := auth.NewHandler(userService)
+	spotifyTokenManager := auth.NewSpotifyTokenManager(userService)
+	spotifyHandler := spotify.NewHandler(userService, spotifyTokenManager)
 
 	moodRepo := mood.NewRepository(db)
 	moodService := mood.NewService(moodRepo)
@@ -79,14 +82,19 @@ func main() {
 	pipelineService := pipeline.NewService(moodService, recService, aiClient)
 	pipelineHandler := pipeline.NewHandler(pipelineService)
 
+	// Token temizliği başlat.
+	go auth.CleanupBlacklist()
+
 	// --- HTTP router ---
 	router := gin.Default()
+	router.Use(middleware.ErrorHandler())
 
 	// /api/v1 grubu altında tüm modül route'ları kaydedilir.
 	v1 := router.Group("/api/v1")
 	{
 		auth.RegisterRoutes(v1, authHandler)
 		user.RegisterRoutes(v1, userHandler)
+		spotify.RegisterRoutes(v1, spotifyHandler)
 		mood.RegisterRoutes(v1, moodHandler)
 		recommendation.RegisterRoutes(v1, recHandler)
 

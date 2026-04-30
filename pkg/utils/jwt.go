@@ -8,26 +8,72 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-// Claims represents the JWT claims payload.
+// Token süreleri.
+const (
+	AccessTokenDuration  = 15 * time.Minute // Access token: 15 dakika
+	RefreshTokenDuration = 7 * 24 * time.Hour // Refresh token: 7 gün
+)
+
+// Claims — JWT içindeki veriler.
 type Claims struct {
-	UserID uint   `json:"user_id"`
-	Email  string `json:"email"`
+	UserID    uint   `json:"user_id"`
+	Email     string `json:"email"`
+	TokenType string `json:"token_type"` // "access" veya "refresh"
 	jwt.RegisteredClaims
 }
 
-// GenerateToken creates a new JWT token for the given user.
-// Token is valid for 24 hours.
+// TokenPair — Token çifti.
+type TokenPair struct {
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token"`
+}
+
+// GenerateToken — Tek access token üret.
 func GenerateToken(userID uint, email string) (string, error) {
+	// Sadece access token döndür
+	accessToken, err := generateTokenWithType(userID, email, "access", AccessTokenDuration)
+	if err != nil {
+		return "", err
+	}
+	return accessToken, nil
+}
+
+// GenerateTokenPair — Token çifti üret.
+func GenerateTokenPair(userID uint, email string) (*TokenPair, error) {
+	accessToken, err := generateTokenWithType(userID, email, "access", AccessTokenDuration)
+	if err != nil {
+		return nil, err
+	}
+
+	refreshToken, err := generateTokenWithType(userID, email, "refresh", RefreshTokenDuration)
+	if err != nil {
+		return nil, err
+	}
+
+	return &TokenPair{
+		AccessToken:  accessToken,
+		RefreshToken: refreshToken,
+	}, nil
+}
+
+// GenerateAccessToken — Yeni access token üret.
+func GenerateAccessToken(userID uint, email string) (string, error) {
+	return generateTokenWithType(userID, email, "access", AccessTokenDuration)
+}
+
+// generateTokenWithType — JWT oluştur.
+func generateTokenWithType(userID uint, email string, tokenType string, duration time.Duration) (string, error) {
 	secret := os.Getenv("JWT_SECRET")
 	if secret == "" {
 		return "", errors.New("JWT_SECRET is not set")
 	}
 
 	claims := &Claims{
-		UserID: userID,
-		Email:  email,
+		UserID:    userID,
+		Email:     email,
+		TokenType: tokenType,
 		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(duration)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 		},
 	}
@@ -36,8 +82,7 @@ func GenerateToken(userID uint, email string) (string, error) {
 	return token.SignedString([]byte(secret))
 }
 
-// ValidateToken parses and validates a JWT token string.
-// Returns the claims if the token is valid.
+// ValidateToken — Token'ı doğrula.
 func ValidateToken(tokenString string) (*Claims, error) {
 	secret := os.Getenv("JWT_SECRET")
 	if secret == "" {

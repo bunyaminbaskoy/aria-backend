@@ -13,37 +13,37 @@ import (
 	"music-curation/pkg/utils"
 )
 
-// SpotifyUserInfo represents the response from Spotify's /me API.
+// SpotifyUserInfo — Spotify kullanıcı bilgisi.
 type SpotifyUserInfo struct {
 	ID    string `json:"id"`
 	Email string `json:"email"`
 }
 
-// spotifyEndpoint is the OAuth2 endpoint for Spotify.
+// spotifyEndpoint — Spotify OAuth2 URL'leri.
 var spotifyEndpoint = oauth2.Endpoint{
 	AuthURL:  "https://accounts.spotify.com/authorize",
 	TokenURL: "https://accounts.spotify.com/api/token",
 }
 
-// getSpotifyOAuthConfig builds the Spotify OAuth2 config from environment variables.
+// getSpotifyOAuthConfig — Spotify OAuth2 ayarları.
 func getSpotifyOAuthConfig() *oauth2.Config {
 	return &oauth2.Config{
 		ClientID:     os.Getenv("SPOTIFY_CLIENT_ID"),
 		ClientSecret: os.Getenv("SPOTIFY_CLIENT_SECRET"),
 		RedirectURL:  os.Getenv("SPOTIFY_REDIRECT_URL"),
-		Scopes:       []string{"user-read-email", "user-read-private", "playlist-modify-public", "playlist-modify-private"},
+		Scopes:       []string{"user-read-email", "user-read-private", "playlist-modify-public", "playlist-modify-private", "user-read-recently-played", "user-top-read"},
 		Endpoint:     spotifyEndpoint,
 	}
 }
 
-// SpotifyLogin handles GET /api/v1/auth/spotify — redirects to Spotify authorize page.
+// SpotifyLogin — Spotify giriş sayfasına yönlendir.
 func (h *Handler) SpotifyLogin(c *gin.Context) {
 	config := getSpotifyOAuthConfig()
 	url := config.AuthCodeURL("state-token", oauth2.AccessTypeOffline)
 	c.Redirect(http.StatusTemporaryRedirect, url)
 }
 
-// SpotifyCallback handles GET /api/v1/auth/spotify/callback — exchanges code for token and upserts user.
+// SpotifyCallback — Spotify'dan dönen kodu işle.
 func (h *Handler) SpotifyCallback(c *gin.Context) {
 	code := c.Query("code")
 	if code == "" {
@@ -53,14 +53,14 @@ func (h *Handler) SpotifyCallback(c *gin.Context) {
 
 	config := getSpotifyOAuthConfig()
 
-	// Exchange authorization code for access token
+	// Kodu token'a çevir
 	token, err := config.Exchange(c.Request.Context(), code)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to exchange token: %v", err)})
 		return
 	}
 
-	// Fetch user info from Spotify
+	// Kullanıcı bilgisini çek
 	client := config.Client(c.Request.Context(), token)
 	resp, err := client.Get("https://api.spotify.com/v1/me")
 	if err != nil {
@@ -75,7 +75,7 @@ func (h *Handler) SpotifyCallback(c *gin.Context) {
 		return
 	}
 
-	// Find or create user
+	// Bul veya oluştur
 	existingUser, err := h.userService.GetUserBySpotifyID(spotifyUser.ID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
@@ -85,7 +85,7 @@ func (h *Handler) SpotifyCallback(c *gin.Context) {
 	var appUser *user.User
 
 	if existingUser != nil {
-		// User already linked — update Spotify tokens
+		// Zaten eşleşmiş — token'ları güncelle
 		existingUser.SpotifyAccessToken = &token.AccessToken
 		existingUser.SpotifyRefreshToken = &token.RefreshToken
 		if err := h.userService.UpdateUser(existingUser); err != nil {
@@ -94,7 +94,7 @@ func (h *Handler) SpotifyCallback(c *gin.Context) {
 		}
 		appUser = existingUser
 	} else {
-		// Check if a user with this email already exists
+		// Email ile kayıtlı mı?
 		emailUser, err := h.userService.GetUserByEmail(spotifyUser.Email)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
@@ -102,7 +102,7 @@ func (h *Handler) SpotifyCallback(c *gin.Context) {
 		}
 
 		if emailUser != nil {
-			// Link Spotify to existing account
+			// Spotify'u hesaba bağla
 			emailUser.SpotifyID = &spotifyUser.ID
 			emailUser.SpotifyAccessToken = &token.AccessToken
 			emailUser.SpotifyRefreshToken = &token.RefreshToken
@@ -112,7 +112,7 @@ func (h *Handler) SpotifyCallback(c *gin.Context) {
 			}
 			appUser = emailUser
 		} else {
-			// Create a new user
+			// Yeni kayıt
 			appUser = &user.User{
 				Email:               spotifyUser.Email,
 				SpotifyID:           &spotifyUser.ID,
@@ -126,8 +126,8 @@ func (h *Handler) SpotifyCallback(c *gin.Context) {
 		}
 	}
 
-	// Generate JWT
-	jwtToken, err := utils.GenerateToken(appUser.ID, appUser.Email)
+	// Token çifti üret
+	tokenPair, err := utils.GenerateTokenPair(appUser.ID, appUser.Email)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
 		return
@@ -136,8 +136,9 @@ func (h *Handler) SpotifyCallback(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"message": "Spotify authentication successful",
 		"data": AuthResponse{
-			Token: jwtToken,
-			User:  appUser,
+			AccessToken:  tokenPair.AccessToken,
+			RefreshToken: tokenPair.RefreshToken,
+			User:         appUser,
 		},
 	})
 }

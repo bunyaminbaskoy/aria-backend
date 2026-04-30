@@ -14,14 +14,14 @@ import (
 	"music-curation/pkg/utils"
 )
 
-// GoogleUserInfo represents the response from Google's userinfo API.
+// GoogleUserInfo — Google kullanıcı bilgisi.
 type GoogleUserInfo struct {
 	ID    string `json:"id"`
 	Email string `json:"email"`
 	Name  string `json:"name"`
 }
 
-// getGoogleOAuthConfig builds the Google OAuth2 config from environment variables.
+// getGoogleOAuthConfig — Google OAuth2 ayarları.
 func getGoogleOAuthConfig() *oauth2.Config {
 	return &oauth2.Config{
 		ClientID:     os.Getenv("GOOGLE_CLIENT_ID"),
@@ -32,14 +32,14 @@ func getGoogleOAuthConfig() *oauth2.Config {
 	}
 }
 
-// GoogleLogin handles GET /api/v1/auth/google — redirects to Google consent screen.
+// GoogleLogin — Google giriş sayfasına yönlendir.
 func (h *Handler) GoogleLogin(c *gin.Context) {
 	config := getGoogleOAuthConfig()
 	url := config.AuthCodeURL("state-token", oauth2.AccessTypeOffline)
 	c.Redirect(http.StatusTemporaryRedirect, url)
 }
 
-// GoogleCallback handles GET /api/v1/auth/google/callback — exchanges code for token and upserts user.
+// GoogleCallback — Google'dan dönen kodu işle.
 func (h *Handler) GoogleCallback(c *gin.Context) {
 	code := c.Query("code")
 	if code == "" {
@@ -49,14 +49,14 @@ func (h *Handler) GoogleCallback(c *gin.Context) {
 
 	config := getGoogleOAuthConfig()
 
-	// Exchange authorization code for access token
+	// Kodu token'a çevir
 	token, err := config.Exchange(c.Request.Context(), code)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to exchange token: %v", err)})
 		return
 	}
 
-	// Fetch user info from Google
+	// Kullanıcı bilgisini çek
 	client := config.Client(c.Request.Context(), token)
 	resp, err := client.Get("https://www.googleapis.com/oauth2/v2/userinfo")
 	if err != nil {
@@ -71,7 +71,7 @@ func (h *Handler) GoogleCallback(c *gin.Context) {
 		return
 	}
 
-	// Find or create user
+	// Bul veya oluştur
 	existingUser, err := h.userService.GetUserByGoogleID(googleUser.ID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
@@ -81,10 +81,10 @@ func (h *Handler) GoogleCallback(c *gin.Context) {
 	var appUser *user.User
 
 	if existingUser != nil {
-		// User already linked with this Google account
+		// Zaten eşleşmiş
 		appUser = existingUser
 	} else {
-		// Check if a user with this email already exists (e.g. signed up with password)
+		// Email ile kayıtlı mı?
 		emailUser, err := h.userService.GetUserByEmail(googleUser.Email)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
@@ -92,7 +92,7 @@ func (h *Handler) GoogleCallback(c *gin.Context) {
 		}
 
 		if emailUser != nil {
-			// Link Google ID to existing account
+			// Google'u hesaba bağla
 			emailUser.GoogleID = &googleUser.ID
 			if err := h.userService.UpdateUser(emailUser); err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to link Google account"})
@@ -100,7 +100,7 @@ func (h *Handler) GoogleCallback(c *gin.Context) {
 			}
 			appUser = emailUser
 		} else {
-			// Create a new user
+			// Yeni kayıt
 			appUser = &user.User{
 				Email:    googleUser.Email,
 				GoogleID: &googleUser.ID,
@@ -112,8 +112,8 @@ func (h *Handler) GoogleCallback(c *gin.Context) {
 		}
 	}
 
-	// Generate JWT
-	jwtToken, err := utils.GenerateToken(appUser.ID, appUser.Email)
+	// Token çifti üret
+	tokenPair, err := utils.GenerateTokenPair(appUser.ID, appUser.Email)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
 		return
@@ -122,8 +122,9 @@ func (h *Handler) GoogleCallback(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"message": "Google authentication successful",
 		"data": AuthResponse{
-			Token: jwtToken,
-			User:  appUser,
+			AccessToken:  tokenPair.AccessToken,
+			RefreshToken: tokenPair.RefreshToken,
+			User:         appUser,
 		},
 	})
 }
