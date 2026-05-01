@@ -1,6 +1,8 @@
 # 🎵 Aria — RAG Tabanlı Müzik Kürasyonu Sistemi
 
-Modular Monolith mimarisinde Go (Golang) ile geliştirilmiş bir müzik kürasyonu backend API'si.
+Modular Monolith mimarisinde Go (Golang) ile geliştirilmiş bir müzik kürasyonu backend API'si. Kullanıcının doğal dilde girdiği ruh hali metnini Python FastAPI (RAG/LLM) servisine gönderir, duygu analizi ve parça önerilerini yönetir, Spotify'a iletmeden önce tüm veri akışını düzenler.
+
+---
 
 ## 🏗️ Teknoloji Stack
 
@@ -10,12 +12,13 @@ Modular Monolith mimarisinde Go (Golang) ile geliştirilmiş bir müzik kürasyo
 | Gin | HTTP web framework |
 | GORM | ORM (Object-Relational Mapping) |
 | PostgreSQL | Ana veritabanı |
-| JWT | Token tabanlı kimlik doğrulama |
+| JWT (golang-jwt/v5) | Token tabanlı kimlik doğrulama |
 | Bcrypt | Şifre hashleme |
 | OAuth 2.0 | Google & Spotify kimlik doğrulama |
-| Redis (go-redis v9) | Cache & rate limiting |
+| Redis (go-redis v9) | Cache & per-user rate limiting |
 | Python FastAPI (harici) | Sentiment analizi & RAG tabanlı öneri motoru |
 
+---
 
 ## 📁 Proje Yapısı
 
@@ -23,72 +26,89 @@ Modular Monolith mimarisinde Go (Golang) ile geliştirilmiş bir müzik kürasyo
 aria-backend/
 ├── cmd/
 │   └── api/
-│       └── main.go              # Uygulama giriş noktası
+│       └── main.go                  # Tek giriş noktası — tüm DI burada
 ├── internal/
 │   ├── auth/
-│   │   ├── dto.go               # Request/Response yapıları
-│   │   ├── handler.go           # Signup, Login, Me handler'ları
-│   │   ├── oauth_google.go      # Google OAuth 2.0 config + handler
-│   │   ├── oauth_spotify.go     # Spotify OAuth 2.0 config + handler
-
-│   │   └── routes.go            # Auth route tanımları
+│   │   ├── dto.go                   # SignupRequest, LoginRequest, AuthResponse
+│   │   ├── handler.go               # Signup, Login, Me
+│   │   ├── logout.go                # Logout + token kara listesi (in-memory)
+│   │   ├── oauth_google.go          # Google OAuth 2.0
+│   │   ├── oauth_spotify.go         # Spotify OAuth 2.0 (token saklama dahil)
+│   │   ├── refresh.go               # Access token yenileme
+│   │   ├── routes.go                # Auth route tanımları
+│   │   └── spotify_token.go         # SpotifyTokenManager (otomatik token yenileme)
 │   ├── middleware/
-│   │   ├── auth.go              # JWT doğrulama middleware'i
-│   │   └── ratelimit.go         # Redis tabanlı rate limit middleware'i
+│   │   ├── auth.go                  # JWT doğrulama middleware'i
+│   │   ├── error.go                 # Global hata yakalama middleware'i
+│   │   └── ratelimit.go             # Redis tabanlı fixed-window rate limiter
 │   ├── mood/
-│   │   ├── dto.go               # Request/Response & internal DTO'lar
-│   │   ├── handler.go           # Mood HTTP handler'ları
-│   │   ├── model.go             # GORM Mood modeli (sentiment alanları + jsonb)
-│   │   ├── repository.go        # Mood veritabanı erişim katmanı
-│   │   ├── routes.go            # Mood route tanımları
-│   │   └── service.go           # Mood iş mantığı katmanı
+│   │   ├── dto.go                   # CreateMoodRequest, AnalysisUpdate
+│   │   ├── handler.go               # Mood HTTP handler'ları
+│   │   ├── model.go                 # GORM Mood modeli (sentiment + jsonb)
+│   │   ├── repository.go            # Mood DB erişim katmanı
+│   │   ├── routes.go                # Mood route tanımları
+│   │   └── service.go               # Mood iş mantığı
 │   ├── recommendation/
-│   │   ├── dto.go               # Internal DTO'lar (orchestrator giriş yapısı)
-│   │   ├── handler.go           # Recommendation HTTP handler'ları (sadece okuma)
-│   │   ├── model.go             # Recommendation + RecommendedTrack modelleri
-│   │   ├── repository.go        # Recommendation veritabanı erişim katmanı
-│   │   ├── routes.go            # Recommendation route tanımları
-│   │   └── service.go           # Recommendation iş mantığı katmanı
+│   │   ├── dto.go                   # CreateRecommendationInput, TrackInput
+│   │   ├── handler.go               # Recommendation HTTP handler'ları (sadece okuma)
+│   │   ├── model.go                 # Recommendation + RecommendedTrack modelleri
+│   │   ├── repository.go            # Recommendation DB erişim katmanı
+│   │   ├── routes.go                # Recommendation route tanımları
+│   │   └── service.go               # Recommendation iş mantığı
 │   ├── pipeline/
-│   │   ├── dto.go               # GenerateRequest / GenerateResponse
-│   │   ├── handler.go           # /recommendations/generate handler'ı
-│   │   ├── routes.go            # Orchestrator route tanımları
-│   │   └── service.go           # AI çağrıları + DB persist orkestrasyonu
+│   │   ├── dto.go                   # GenerateRequest / GenerateResponse
+│   │   ├── handler.go               # /recommendations/generate handler'ı
+│   │   ├── routes.go                # Orchestrator route tanımları
+│   │   └── service.go               # 6-adımlı AI orchestration akışı
+│   ├── spotify/
+│   │   ├── client.go                # Spotify API HTTP yardımcıları (GET/POST)
+│   │   ├── handler.go               # Spotify Handler yapısı
+│   │   ├── history.go               # Son dinlenilen şarkılar
+│   │   ├── playlist.go              # Playlist oluşturma & parça ekleme
+│   │   ├── routes.go                # Spotify route tanımları
+│   │   └── top.go                   # En çok dinlenen şarkılar & sanatçılar
 │   ├── music/
-│   │   └── model.go             # Spotify entegrasyonu (placeholder)
+│   │   └── model.go                 # Placeholder (kullanılmıyor)
 │   ├── seeder/
-│   │   └── seeder.go            # Örnek kullanıcı seeder'ı
+│   │   └── seeder.go                # Örnek kullanıcı seeder'ı (idempotent)
 │   └── user/
-│       ├── handler.go           # User HTTP handler'ları
-│       ├── model.go             # GORM User modeli
-│       ├── repository.go        # Veritabanı erişim katmanı
-│       ├── routes.go            # User route tanımları
-│       └── service.go           # İş mantığı katmanı
+│       ├── handler.go               # User HTTP handler'ları
+│       ├── model.go                 # GORM User modeli (local + OAuth alanları)
+│       ├── repository.go            # User DB erişim katmanı
+│       ├── routes.go                # User route tanımları
+│       └── service.go               # User iş mantığı
 ├── pkg/
 │   ├── aiclient/
-│   │   ├── client.go            # Python AI servisi HTTP istemcisi
-│   │   └── contract.go          # /analyze ve /recommend JSON sözleşmesi (spec)
+│   │   ├── client.go                # Python AI servisi HTTP istemcisi (15s timeout)
+│   │   └── contract.go              # /analyze ve /recommend JSON sözleşmesi (spec)
 │   ├── cache/
-│   │   └── redis.go             # Redis bağlantısı (go-redis v9)
+│   │   └── redis.go                 # Redis bağlantısı (go-redis v9)
 │   ├── database/
-│   │   └── postgres.go          # PostgreSQL bağlantısı
+│   │   └── postgres.go              # PostgreSQL bağlantısı (GORM)
 │   └── utils/
-│       ├── jwt.go               # JWT üretimi ve doğrulaması
-│       └── password.go          # Bcrypt hash/kontrol
-├── .env.example                 # Örnek ortam değişkenleri
+│       ├── jwt.go                   # JWT üretimi (access + refresh çifti) ve doğrulama
+│       └── password.go              # Bcrypt hash/kontrol
+├── Test/
+│   ├── auth_jwt_test.go             # JWT, bcrypt, blacklist testleri
+│   ├── mood_recommendation_test.go  # Model, DTO, sentinel hata testleri
+│   ├── pipeline_service_test.go     # Mock AI client, hata eşleme testleri
+│   └── spotify_module_test.go       # Spotify veri yapısı testleri
+├── .env.example                     # Örnek ortam değişkenleri
 ├── .gitignore
 ├── go.mod
 └── go.sum
 ```
+
+---
 
 ## 🚀 Kurulum
 
 ### Gereksinimler
 
 - Go 1.22+
-- PostgreSQL (veya Docker)
-- Redis 7+ (rate limiting için zorunlu — Docker ile çalıştırılabilir)
-- (Opsiyonel) Python FastAPI AI servisi — `AI_SERVICE_URL` ile erişilebilir olmalı; servis ayağa kalkmadan `/recommendations/generate` 503 döner.
+- PostgreSQL 14+ (veya Docker)
+- Redis 7+ (veya Docker)
+- Python FastAPI AI servisi — `AI_SERVICE_URL` ile erişilebilir olmalı; servis ayağa kalkmadan `/recommendations/generate` 503 döner.
 
 ### Adımlar
 
@@ -99,15 +119,12 @@ cd aria-backend
 ```
 
 **2. Ortam değişkenlerini ayarla:**
-
 ```bash
 cp .env.example .env
+# .env dosyasını kendi bilgilerinle düzenle
 ```
 
-`.env` dosyasını düzenleyip kendi bilgilerini gir.
-
-**3. PostgreSQL'i başlat (Docker ile):**
-
+**3. PostgreSQL'i başlat (Docker):**
 ```bash
 docker run -d \
   --name aria-postgres \
@@ -118,14 +135,7 @@ docker run -d \
   postgres:16-alpine
 ```
 
-Veya manuel olarak veritabanını oluştur:
-
-```sql
-CREATE DATABASE music_curation;
-```
-
-**4. Redis'i başlat (Docker ile):**
-
+**4. Redis'i başlat (Docker):**
 ```bash
 docker run -d \
   --name aria-redis \
@@ -133,7 +143,7 @@ docker run -d \
   redis:7-alpine
 ```
 
-> Redis bağlantısı zorunludur — `pkg/cache.ConnectRedis` PING başarısız olursa uygulama fail-fast durur. Bu, rate limiter'ın güvenilir çalışması için bilinçli bir tercihtir.
+> Redis bağlantısı zorunludur. `ConnectRedis` PING başarısız olursa uygulama fail-fast durur.
 
 **5. Bağımlılıkları indir:**
 ```bash
@@ -145,27 +155,30 @@ go mod tidy
 go run cmd/api/main.go
 ```
 
-Sunucu `http://localhost:8080` adresinde çalışmaya başlayacak.
+Sunucu `http://localhost:8080` adresinde çalışmaya başlar ve AutoMigrate + Seeder otomatik çalışır.
+
+---
 
 ## 📡 API Endpoint'leri
 
 ### Auth — Public
 
-
 | Method | Endpoint | Açıklama |
 |--------|----------|----------|
 | `POST` | `/api/v1/auth/signup` | Yeni kullanıcı kaydı |
-| `POST` | `/api/v1/auth/login` | Giriş yap, JWT al |
-| `GET` | `/api/v1/auth/me` | Mevcut kullanıcıyı getir 🔒 |
+| `POST` | `/api/v1/auth/login` | Giriş yap, JWT çifti al |
+| `POST` | `/api/v1/auth/refresh` | Refresh token ile yeni access token al |
+| `POST` | `/api/v1/auth/logout` | Refresh token'ı kara listeye al |
 
 ### Auth — OAuth 2.0
 
 | Method | Endpoint | Açıklama |
 |--------|----------|----------|
-| `GET` | `/api/v1/auth/google` | Google ile giriş — consent ekranına yönlendirir |
+| `GET` | `/api/v1/auth/me` | Mevcut kullanıcıyı getir 🔒 |
+| `GET` | `/api/v1/auth/google` | Google consent ekranına yönlendir |
 | `GET` | `/api/v1/auth/google/callback` | Google callback — JWT döner |
-| `GET` | `/api/v1/auth/spotify` | Spotify ile giriş — authorize sayfasına yönlendirir |
-| `GET` | `/api/v1/auth/spotify/callback` | Spotify callback — JWT döner |
+| `GET` | `/api/v1/auth/spotify` | Spotify authorize sayfasına yönlendir |
+| `GET` | `/api/v1/auth/spotify/callback` | Spotify callback — JWT + token saklama |
 
 ### Users — Protected 🔒
 
@@ -176,32 +189,43 @@ Sunucu `http://localhost:8080` adresinde çalışmaya başlayacak.
 
 ### Mood — Protected 🔒
 
-Kullanıcının ham ruh hali metinlerini ve bunların AI tarafından üretilmiş sentiment skorlarını saklar.
-
 | Method | Endpoint | Açıklama |
 |--------|----------|----------|
-| `POST` | `/api/v1/moods` | Ham metin kaydeder, `pending` durumunda Mood döner (AI çalıştırmaz) |
-| `GET` | `/api/v1/moods` | Giriş yapmış kullanıcının ruh hali geçmişi (sayfalı: `?limit=&offset=`) |
-| `GET` | `/api/v1/moods/:id` | Tek bir Mood kaydını getirir |
-| `GET` | `/api/v1/moods/:id/recommendations` | Bu Mood için üretilmiş tüm öneri kümeleri |
+| `POST` | `/api/v1/moods` | Ham metin kaydeder, `pending` Mood döner (AI çalıştırmaz) |
+| `GET` | `/api/v1/moods` | Kullanıcının ruh hali geçmişi (`?limit=&offset=`) |
+| `GET` | `/api/v1/moods/:id` | Tek bir Mood kaydı |
+| `GET` | `/api/v1/moods/:id/recommendations` | Bu Mood için üretilmiş öneriler |
 
-> **Not:** Asıl uçtan uca akış (sentiment + öneri) `/api/v1/recommendations/generate` üzerinden yapılır. `POST /moods` yalnızca AI'sız ham kayıt için kullanılır; üretimde nadiren çağrılması beklenir.
+> **Not:** Asıl uçtan uca akış `/api/v1/recommendations/generate` üzerinden yapılır. `POST /moods` AI'sız ham kayıt içindir.
 
 ### Recommendation — Protected 🔒
 
 | Method | Endpoint | Açıklama |
 |--------|----------|----------|
-| `POST` | `/api/v1/recommendations/generate` | Tüm pipeline'ı çalıştırır — sentiment analizi + RAG önerisi (rate limited) |
-| `GET` | `/api/v1/recommendations` | Kullanıcının öneri geçmişi (sayfalı, parçalar dahil değil) |
-| `GET` | `/api/v1/recommendations/:id` | Tek bir öneri kümesi (parçalarıyla, Position'a göre sıralı) |
+| `POST` | `/api/v1/recommendations/generate` | Pipeline: sentiment + RAG önerisi (rate limited: 5/dk) |
+| `GET` | `/api/v1/recommendations` | Kullanıcının öneri geçmişi (sayfalı, parçasız) |
+| `GET` | `/api/v1/recommendations/:id` | Tek öneri kümesi (parçalarıyla, Position sıralı) |
 
-> **Yazma yok (POST/PUT/DELETE):** Recommendation kayıtları **yalnızca** orchestrator (`pipeline.Service.CreateFromAI`) üzerinden oluşturulur. Bu, AI sonuçlarının dışarıdan elle manipüle edilmesini engelleyen bilinçli bir mimari karardır.
+> Recommendation kayıtları **yalnızca** orchestrator üzerinden oluşturulur. Dışarıdan manuel POST yolu kapalıdır.
+
+### Spotify — Protected 🔒
+
+| Method | Endpoint | Açıklama |
+|--------|----------|----------|
+| `GET` | `/api/v1/spotify/history` | Son dinlenen şarkılar (`?limit=20`) |
+| `GET` | `/api/v1/spotify/top/tracks` | En çok dinlenen şarkılar (`?time_range=&limit=`) |
+| `GET` | `/api/v1/spotify/top/artists` | En çok dinlenen sanatçılar (`?time_range=&limit=`) |
+| `POST` | `/api/v1/spotify/playlist` | Spotify'da playlist oluştur ve parça ekle |
+
+> Spotify endpoint'leri için kullanıcının Spotify hesabını `/auth/spotify` ile bağlamış olması gerekir.
 
 ### Health
 
 | Method | Endpoint | Açıklama |
 |--------|----------|----------|
 | `GET` | `/health` | API sağlık kontrolü |
+
+---
 
 ## 📝 Kullanım Örnekleri
 
@@ -219,27 +243,40 @@ curl -X POST http://localhost:8080/api/v1/auth/login \
   -d '{"email":"user@example.com","password":"123456"}'
 ```
 
-**Korumalı endpoint'e erişim:**
+**Playlist üret (ana akış):**
 ```bash
-curl http://localhost:8080/api/v1/users \
-  -H "Authorization: Bearer BURAYA_JWT_TOKEN"
+curl -X POST http://localhost:8080/api/v1/recommendations/generate \
+  -H "Authorization: Bearer JWT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"text": "Bugün bahar gibiyim, biraz dansa ihtiyacım var", "limit": 20}'
+```
+
+**Spotify'da playlist oluştur:**
+```bash
+curl -X POST http://localhost:8080/api/v1/spotify/playlist \
+  -H "Authorization: Bearer JWT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Sabah Enerjisi",
+    "description": "Aria tarafından oluşturuldu",
+    "public": false,
+    "track_uris": ["spotify:track:3n3Ppam7vgaVa1iaRUc9Lp"]
+  }'
 ```
 
 **Google ile giriş:**
-Tarayıcıda aç: `http://localhost:8080/api/v1/auth/google`
+Tarayıcıda: `http://localhost:8080/api/v1/auth/google`
 
 **Spotify ile giriş:**
-Tarayıcıda aç: `http://127.0.0.1:8080/api/v1/auth/spotify`
+Tarayıcıda: `http://127.0.0.1:8080/api/v1/auth/spotify`
+
+---
 
 ## 🔐 OAuth 2.0 Entegrasyonu
 
 ### Google OAuth 2.0
 
-- Kullanıcı `/api/v1/auth/google` → Google consent ekranına yönlendirilir
-- Giriş sonrası callback'e döner → Google'dan email ve google_id alınır
-- DB'de kullanıcı varsa eşleştirilir, yoksa yeni oluşturulur → JWT döner
-
-**Gerekli env değişkenleri:**
+**Gerekli env:**
 ```
 GOOGLE_CLIENT_ID=...
 GOOGLE_CLIENT_SECRET=...
@@ -248,202 +285,199 @@ GOOGLE_REDIRECT_URL=http://localhost:8080/api/v1/auth/google/callback
 
 ### Spotify OAuth 2.0
 
-- Kullanıcı `/api/v1/auth/spotify` → Spotify authorize sayfasına yönlendirilir
-- Giriş sonrası callback'e döner → email, spotify_id, access_token, refresh_token alınır
-- DB'de kullanıcı varsa eşleştirilir ve token'lar güncellenir, yoksa yeni oluşturulur → JWT döner
-- Spotify `access_token` ve `refresh_token` DB'ye kaydedilir (Spotify API çağrıları için)
+Spotify `access_token` ve `refresh_token` veritabanına kaydedilir. `SpotifyTokenManager` token süresi dolduğunda otomatik olarak yeniler.
 
-**Gerekli env değişkenleri:**
+**Gerekli env:**
 ```
 SPOTIFY_CLIENT_ID=...
 SPOTIFY_CLIENT_SECRET=...
 SPOTIFY_REDIRECT_URL=http://127.0.0.1:8080/api/v1/auth/spotify/callback
 ```
 
-> **Not:** Spotify, `localhost` yerine `127.0.0.1` kullanılmasını gerektiriyor. Test ederken tarayıcıda da `127.0.0.1` kullanın.
+> **Not:** Spotify `localhost` yerine `127.0.0.1` gerektirir.
 
 **Spotify OAuth Scopes:**
-- `user-read-email` — kullanıcı emaili
-- `user-read-private` — kullanıcı profili
-- `playlist-modify-public` — public playlist oluşturma
-- `playlist-modify-private` — private playlist oluşturma
+`user-read-email`, `user-read-private`, `playlist-modify-public`, `playlist-modify-private`, `user-read-recently-played`, `user-top-read`
 
 ### OAuth Kullanıcı Eşleştirme Mantığı
 
-1. Provider ID (google_id / spotify_id) ile DB'de arama yapılır
-2. Bulunursa → mevcut kullanıcı döner
-3. Bulunamazsa → email ile arama yapılır
-4. Email varsa → provider ID mevcut hesaba bağlanır
+1. Provider ID (google_id / spotify_id) ile DB araması
+2. Bulunursa → mevcut kullanıcı döner + token'lar güncellenir
+3. Bulunamazsa → email ile arama
+4. Email varsa → provider ID hesaba bağlanır
 5. Email de yoksa → yeni kullanıcı oluşturulur
+
+---
 
 ## 🧠 Orchestrator Akışı — `POST /api/v1/recommendations/generate`
 
-Bu endpoint, sistemin **uçtan uca tek girişi**dir: kullanıcının ham metnini alır, sentiment analizinden parça önerisine kadar tüm boru hattını (pipeline) tek bir senkron çağrıda çalıştırır.
-
-**İstek:**
-
-```bash
-curl -X POST http://localhost:8080/api/v1/recommendations/generate \
-  -H "Authorization: Bearer JWT_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "text": "Bugün bahar gibiyim, biraz dansa ihtiyacım var",
-    "limit": 20
-  }'
+```
+Frontend → POST /recommendations/generate
+              │
+              ├─ AuthMiddleware (JWT doğrulama)
+              ├─ RateLimitMiddleware (Redis: 5 istek/dk)
+              │
+              ▼
+    pipeline.Service.GeneratePlaylist
+              │
+    (a) mood.CreateRawMood        → DB: 'pending' Mood kaydı
+    (b) aiclient.AnalyzeMood      → POST /analyze (Python servisi)
+    (c) mood.UpdateAnalysis       → DB: sentiment alanları, status='analyzed'
+    (d) aiclient.GetRecommendations → POST /recommend (Python servisi)
+    (e) recommendation.CreateFromAI → DB: Recommendation + Tracks (tek transaction)
+    (f) GenerateResponse{Mood, Recommendation} döner
 ```
 
-`limit` opsiyoneldir (1–50 arası, varsayılan 20). `text` zorunlu, 1–2000 karakter.
+Tüm modüller arası iletişim **direkt Go fonksiyon çağrısıyla** yapılır. Sadece (b) ve (d) adımları dış HTTP istekleridir.
 
-**Akış (`internal/pipeline/service.go`):**
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│ Frontend  →  POST /recommendations/generate                     │
-└─────────┬───────────────────────────────────────────────────────┘
-          │ AuthMiddleware (JWT)
-          │ RateLimitMiddleware (Redis: 5/dk)
-          ▼
-┌─────────────────────────────────────────────────────────────────┐
-│ pipeline.Service.GeneratePlaylist                               │
-│                                                                 │
-│ (a) mood.CreateRawMood        → DB'ye 'pending' kayıt           │
-│ (b) aiclient.AnalyzeMood      → POST /analyze (Python)          │
-│ (c) mood.UpdateAnalysis       → DB güncellenir, status=analyzed │
-│ (d) aiclient.GetRecommendations → POST /recommend (Python)      │
-│ (e) recommendation.CreateFromAI → tek transaction'da rec+tracks │
-│ (f) GenerateResponse{Mood, Recommendation} döner                │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-Tüm modüller arası iletişim **direkt Go fonksiyon çağrısıyla** yapılır (modular monolith); ağ üzerinden iç çağrı yoktur. Sadece (b) ve (d) dış HTTP istekleridir (Python servisi).
-
-**Hata davranışı (kısmi başarı toleranslı):**
+**Hata davranışı:**
 
 | Adım | Hata olursa | Mood durumu |
 |------|-------------|-------------|
 | (a) | DB hatası, hiç kayıt kalmaz | — |
-| (b) | AI servisi yanıt vermedi | `failed` olarak işaretlenir |
-| (c) | DB update başarısız | `pending` kalır (idempotent retry mümkün) |
-| (d) | AI servisi yanıt vermedi | `analyzed` kalır, recommendation yazılmaz |
+| (b) | AI yanıt vermedi | `failed` olarak işaretlenir |
+| (c) | DB update başarısız | `pending` kalır |
+| (d) | AI yanıt vermedi | `analyzed` kalır, öneri yazılmaz |
 | (e) | DB transaction başarısız | `analyzed` kalır |
 
 **HTTP yanıt kodları:**
 
 | Kod | Anlam |
 |-----|-------|
-| `200 OK` | Başarılı; `{ mood, recommendation: { tracks: [...] } }` döner |
-| `400 Bad Request` | Boş/aşırı uzun metin, geçersiz `limit` |
+| `200 OK` | Başarılı — `{ mood, recommendation: { tracks: [...] } }` |
+| `400 Bad Request` | Boş/aşırı uzun metin, geçersiz limit |
 | `401 Unauthorized` | JWT yok veya geçersiz |
 | `429 Too Many Requests` | Rate limit aşıldı (`Retry-After` header'ı ile) |
-| `502 Bad Gateway` | AI servisi 4xx/5xx döndürdü (`code: ai_bad_request` / `ai_internal`) |
-| `503 Service Unavailable` | AI servisine ulaşılamadı (`code: ai_unavailable`) |
-| `500 Internal Server Error` | Veritabanı veya beklenmeyen hata |
+| `502 Bad Gateway` | AI servisi 4xx/5xx döndürdü |
+| `503 Service Unavailable` | AI servisine ulaşılamadı |
+| `500 Internal Server Error` | DB veya beklenmeyen hata |
+
+---
 
 ## 🚦 Rate Limiting
 
-`POST /api/v1/recommendations/generate` endpoint'i, AI servisinin maliyetli olması nedeniyle Redis tabanlı sabit pencere (fixed window) rate limit ile korunur.
+`POST /api/v1/recommendations/generate` — Redis tabanlı fixed-window:
 
 | Kapsam | Limit | Pencere |
 |--------|-------|---------|
-| Kullanıcı başına `/recommendations/generate` | **5 istek** | **1 dakika** |
+| Kullanıcı başına | **5 istek** | **1 dakika** |
 
-Diğer endpoint'lerde (mood, recommendation listeleme, auth, vb.) rate limit **yoktur**.
+**Redis anahtar şeması:** `ratelimit:generate:<userID>`
 
-**Anahtar şeması (Redis):**
-
-```
-ratelimit:generate:<userID>      → INCR sayacı (TTL = 60s)
-```
-
-**İstemci tarafı yardımcı header'lar:**
+**Response header'ları:**
 
 | Header | Anlam |
 |--------|-------|
-| `X-RateLimit-Limit` | Pencere başına izin verilen toplam istek (5) |
-| `X-RateLimit-Remaining` | Bu pencerede kalan istek hakkı |
-| `Retry-After` | (sadece 429'da) Pencerenin sıfırlanmasına kalan saniye |
+| `X-RateLimit-Limit` | Pencere başına izin (5) |
+| `X-RateLimit-Remaining` | Kalan istek hakkı |
+| `Retry-After` | (sadece 429'da) Sıfırlanmaya kalan saniye |
 
-**Fail-open politikası:** Redis erişilemez durumdaysa rate limit middleware isteği **bloklamaz**, sunucu loguna uyarı yazar ve geçirir. Redis blip'i tüm API'yi çökertmesin diye bilinçli bir tercihtir; auth zinciri her zaman zorlu olarak çalışmaya devam eder.
+**Fail-open politikası:** Redis erişilemezse istek **bloklanmaz**, uyarı loglanır ve geçirilir.
+
+---
 
 ## 🔌 Python AI Servisi Sözleşmesi
 
-Backend'in beklediği JSON şemaları `pkg/aiclient/contract.go` dosyasında **tek doğru kaynak** (single source of truth) olarak tanımlıdır. Python ekibi Pydantic modellerini bu struct'larla birebir uyumlu yazmalıdır.
+`pkg/aiclient/contract.go` — Python ekibinin Pydantic modellerini birebir uyumlu yazması gereken **tek doğru kaynak**.
 
 | Endpoint | Amaç | Request | Response |
 |----------|------|---------|----------|
 | `POST {AI_SERVICE_URL}/analyze` | Sentiment + duygu analizi | `AnalyzeRequest` | `AnalyzeResponse` |
 | `POST {AI_SERVICE_URL}/recommend` | RAG tabanlı parça önerisi | `RecommendRequest` | `RecommendResponse` |
 
-Detaylı alan açıklamaları, status kodları ve örnek payload'lar için `pkg/aiclient/contract.go` dosyasına bakınız.
+**Env değişkenleri:**
+```
+AI_SERVICE_URL=http://localhost:8000
+AI_SERVICE_TIMEOUT_MS=15000
+```
+
+---
 
 ## 🗃️ Veritabanı Şeması
 
-### Users Tablosu
+### Users
 
 | Alan | Tip | Açıklama |
 |------|-----|----------|
-| id | uint (PK) | Otomatik artan primary key |
-| email | string (Unique) | Kullanıcı e-postası |
-| password | string | Bcrypt ile hashlenmiş şifre (OAuth için opsiyonel) |
-| google_id | string? | Google OAuth ID (nullable) |
-| spotify_id | string? | Spotify OAuth ID (nullable) |
-| spotify_access_token | string? | Spotify API erişim token'ı (nullable) |
-| spotify_refresh_token | string? | Spotify token yenileme (nullable) |
-| created_at | timestamp | Oluşturulma tarihi |
-| updated_at | timestamp | Güncellenme tarihi |
+| id | uint PK | Primary key |
+| email | string unique | Kullanıcı e-postası |
+| password | string | Bcrypt hash (OAuth için opsiyonel) |
+| google_id | string? | Google OAuth ID |
+| spotify_id | string? | Spotify OAuth ID |
+| spotify_access_token | string? | Spotify API token |
+| spotify_refresh_token | string? | Spotify yenileme token'ı |
+| created_at, updated_at | timestamp | — |
 
-### Moods Tablosu
+### Moods
 
 | Alan | Tip | Açıklama |
 |------|-----|----------|
-| id | uint (PK) | Otomatik artan primary key |
-| user_id | uint (FK, indexed) | Sahip kullanıcı |
-| raw_text | text | Kullanıcının girdiği ham metin |
-| sentiment_label | string | AI etiketi (pozitif/negatif/karışık vb.) |
+| id | uint PK | Primary key |
+| user_id | uint FK | Sahip kullanıcı (indexed) |
+| raw_text | text | Kullanıcı girişi |
+| sentiment_label | string | AI etiketi |
 | dominant_emotion | string | En yüksek skorlu duygu |
-| valence | float | [-1, +1] — pozitif/negatif duygulanım |
-| arousal | float | [-1, +1] — sakin/heyecanlı |
-| energy | float | [0, 1] — Spotify energy benzeri |
-| emotion_scores | jsonb | Çok-etiketli duygu skor haritası |
-| language | string | ISO 639-1 dil kodu |
-| ai_model_version | string | Analizi üreten model sürümü |
-| processing_ms | int | AI çağrısı süresi (ms) |
-| status | string (indexed) | `pending` / `analyzed` / `failed` |
-| created_at, updated_at | timestamp | — |
+| valence | float | [-1, +1] |
+| arousal | float | [-1, +1] |
+| energy | float | [0, 1] |
+| emotion_scores | jsonb | Çok-etiketli duygu haritası |
+| language | string | ISO 639-1 |
+| ai_model_version | string | Analizi üreten model |
+| processing_ms | int | AI süresi (ms) |
+| status | string indexed | `pending` / `analyzed` / `failed` |
 
-### Recommendations Tablosu
-
-| Alan | Tip | Açıklama |
-|------|-----|----------|
-| id | uint (PK) | Otomatik artan primary key |
-| user_id | uint (FK, indexed) | Sahip kullanıcı |
-| mood_id | uint (FK, indexed) | İlişkili Mood kaydı |
-| ai_model_version | string | Öneriyi üreten RAG modelinin sürümü |
-| rag_context | text | LLM prompt'u veya retrieve edilen bağlam (debug/explainability) |
-| processing_ms | int | AI çağrısı süresi (ms) |
-| status | string (indexed) | `pending` / `ready` / `failed` |
-| created_at, updated_at | timestamp | — |
-
-### RecommendedTracks Tablosu
+### Recommendations
 
 | Alan | Tip | Açıklama |
 |------|-----|----------|
-| id | uint (PK) | Otomatik artan primary key |
-| recommendation_id | uint (FK, indexed) | Parent Recommendation; CASCADE delete |
-| spotify_track_id | string (indexed, nullable) | Spotify katalog ID'si — sonradan da çözümlenebilir |
+| id | uint PK | Primary key |
+| user_id | uint FK | Sahip kullanıcı |
+| mood_id | uint FK | İlişkili Mood |
+| ai_model_version | string | RAG model sürümü |
+| rag_context | text | LLM bağlamı (debug/explainability) |
+| processing_ms | int | AI süresi (ms) |
+| status | string indexed | `pending` / `ready` / `failed` |
+
+### RecommendedTracks
+
+| Alan | Tip | Açıklama |
+|------|-----|----------|
+| id | uint PK | Primary key |
+| recommendation_id | uint FK | Parent (CASCADE delete) |
+| spotify_track_id | string? | Spotify katalog ID'si |
 | title, artist, album | string | Parça meta verisi |
-| preview_url, external_url | string | Spotify preview ve open.spotify.com linkleri |
+| preview_url, external_url | string | Spotify linkleri |
 | duration_ms | int | Parça süresi (ms) |
-| position | int | Küme içindeki sıra (0'dan başlar) |
-| relevance_score | float | [0, 1] — AI'nın güven skoru |
+| position | int | Sıra (0'dan başlar) |
+| relevance_score | float | [0, 1] AI güven skoru |
 | reason | text | "Neden bu şarkı?" açıklaması |
-| created_at | timestamp | — |
 
-> Composite unique index: `(recommendation_id, position)` — aynı küme içinde Position çakışmasını engeller.
+> Composite unique index: `(recommendation_id, position)` — aynı küme içinde çakışma engellenir.
+
+---
+
+## 🧪 Testler
+
+Test dosyaları `Test/` klasöründe bulunur. Harici framework kullanılmaz, yalnızca Go standart kütüphanesi.
+
+```bash
+go test ./Test/... -v
+```
+
+| Dosya | Kapsam | Test Sayısı |
+|-------|--------|-------------|
+| `auth_jwt_test.go` | JWT üretim/doğrulama, bcrypt, blacklist | 9 |
+| `mood_recommendation_test.go` | Model sabitleri, DTO'lar, sentinel hatalar | 11 |
+| `pipeline_service_test.go` | Mock AI client, hata kategorileri, sözleşme alanları | 11 |
+| `spotify_module_test.go` | Track/Artist/Playlist yapıları | 9 |
+
+**Toplam: 40 test — tümü veritabanı/ağ bağlantısı gerektirmez.**
+
+---
 
 ## 🌱 Seeder
 
-Uygulama ilk başlatıldığında otomatik olarak 10 örnek kullanıcı oluşturur:
+Uygulama her başlatılışında otomatik olarak 10 örnek kullanıcı oluşturur (idempotent):
 
 | Email | Şifre |
 |-------|-------|
@@ -452,31 +486,74 @@ Uygulama ilk başlatıldığında otomatik olarak 10 örnek kullanıcı oluştur
 | charlie@example.com | password123 |
 | ... | ... |
 
-Seeder idempotent'tır — tekrar çalıştırıldığında mevcut kullanıcıları tekrar eklemez.
+---
+
+## 🔑 Ortam Değişkenleri
+
+```env
+# Sunucu
+PORT=8080
+
+# PostgreSQL
+DB_HOST=localhost
+DB_PORT=5432
+DB_USER=postgres
+DB_PASSWORD=postgres123
+DB_NAME=music_curation
+
+# Redis
+REDIS_ADDR=localhost:6379
+
+# JWT
+JWT_SECRET=gizli-anahtar-buraya
+
+# Google OAuth
+GOOGLE_CLIENT_ID=...
+GOOGLE_CLIENT_SECRET=...
+GOOGLE_REDIRECT_URL=http://localhost:8080/api/v1/auth/google/callback
+
+# Spotify OAuth
+SPOTIFY_CLIENT_ID=...
+SPOTIFY_CLIENT_SECRET=...
+SPOTIFY_REDIRECT_URL=http://127.0.0.1:8080/api/v1/auth/spotify/callback
+
+# Python AI Servisi
+AI_SERVICE_URL=http://localhost:8000
+AI_SERVICE_TIMEOUT_MS=15000
+```
+
+---
 
 ## 🔜 Yol Haritası
 
-- [x] Proje iskeleti & Auth (signup, login, me)
+- [x] Proje iskeleti & Auth (signup, login, me, refresh, logout)
 - [x] Google OAuth 2.0 entegrasyonu
 - [x] Spotify OAuth 2.0 (Access & Refresh Token yönetimi)
 - [x] Mood + Recommendation modülleri (GORM + jsonb)
 - [x] AI/RAG client + Python servisi sözleşmesi (`pkg/aiclient`)
 - [x] Orchestrator pipeline (`POST /recommendations/generate`)
-- [x] Redis bağlantısı + per-user rate limiting (5/dk)
-- [ ] Spotify API ile gerçek playlist oluşturma (parça çözümleme)
+- [x] Redis bağlantısı + per-user rate limiting (5/dk, fail-open)
+- [x] Spotify API entegrasyonu (history, top tracks/artists, playlist oluşturma)
+- [x] Test suite (`Test/` — 40 test, DB gerektirmez)
 - [ ] Öneri sonuçlarının Redis ile cache'lenmesi
 - [ ] Asenkron pipeline (job queue + status polling)
 
-## 👥 Ekip
+---
 
-| Görev | Durum |
-|-------|-------|
-| Proje iskeleti & Auth | ✅ Tamamlandı |
-| Google/Spotify OAuth | ✅ Tamamlandı |
-| AI Integration & Data Layer (mood, recommendation, pipeline, aiclient, cache) | ✅ Tamamlandı |
-| Spotify API entegrasyonu (playlist push) | 🔜 Geliyor |
-| Python AI/RAG servisi | 🔜 Geliyor |
+## 👥 Ekip & Sorumluluklar
+
+| Modül | Geliştirici | Durum |
+|-------|-------------|-------|
+| Auth (signup/login/OAuth/refresh/logout) | Ortak | ✅ Tamamlandı |
+| User, Mood, Recommendation modülleri | Bunyamin | ✅ Tamamlandı |
+| AI client & Pipeline orchestrator | Bunyamin | ✅ Tamamlandı |
+| Redis cache & Rate limiter | Bunyamin | ✅ Tamamlandı |
+| Spotify API entegrasyonu (history/top/playlist) | Takım Arkadaşı | ✅ Tamamlandı |
+| Python FastAPI AI/RAG servisi | Takım Arkadaşı | 🔜 Geliyor |
+| Next.js Frontend | Takım Arkadaşı | 🔜 Geliyor |
+
+---
 
 ## 📄 Lisans
 
-Bu proje özel kullanım içindir.
+Bu proje özel kullanım içindir (üniversite projesi).
