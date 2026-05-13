@@ -8,6 +8,7 @@ import (
 	"log"
 	"strings"
 
+	"music-curation/internal/interaction"
 	"music-curation/internal/mood"
 	"music-curation/internal/recommendation"
 	"music-curation/pkg/aiclient"
@@ -108,9 +109,10 @@ var moodPresets = map[string]*aiclient.AnalyzeResponse{
 // toplandığı yerdir; tüm bağımlılıklar Go fonksiyon çağrıları ile
 // (ağ üzerinden DEĞİL) yapılır.
 type Service struct {
-	moodService *mood.Service
-	recService  *recommendation.Service
-	aiClient    AIClient
+	moodService        *mood.Service
+	recService         *recommendation.Service
+	aiClient           AIClient
+	interactionService *interaction.Service
 }
 
 // NewService, tüm bağımlılıkları enjekte ederek yeni bir orchestrator
@@ -119,11 +121,13 @@ func NewService(
 	moodService *mood.Service,
 	recService *recommendation.Service,
 	aiClient AIClient,
+	interactionService *interaction.Service,
 ) *Service {
 	return &Service{
-		moodService: moodService,
-		recService:  recService,
-		aiClient:    aiClient,
+		moodService:        moodService,
+		recService:         recService,
+		aiClient:           aiClient,
+		interactionService: interactionService,
 	}
 }
 
@@ -216,7 +220,25 @@ func (s *Service) GeneratePlaylist(ctx context.Context, userID uint, rawText str
 		return nil, fmt.Errorf("%w: mood reload: %v", ErrPersistence, err)
 	}
 
-	// (d) AI'dan parça önerisi iste.
+	// (d) Collaborative filtering sinyallerini topla.
+	var recContext *aiclient.RecommendContext
+	if s.interactionService != nil {
+		likedIDs, _ := s.interactionService.GetLikedTrackIDs(userID)
+		dislikedIDs, _ := s.interactionService.GetDislikedTrackIDs(userID)
+		collabIDs, _ := s.interactionService.GetCollabTrackIDs(userID, 20)
+
+		if len(likedIDs) > 0 || len(dislikedIDs) > 0 || len(collabIDs) > 0 {
+			recContext = &aiclient.RecommendContext{
+				ExcludeTrackIDs: dislikedIDs,
+				LikedTrackIDs:   likedIDs,
+				CollabTrackIDs:  collabIDs,
+			}
+			log.Printf("📊 Collaborative context: %d liked, %d disliked, %d collab tracks",
+				len(likedIDs), len(dislikedIDs), len(collabIDs))
+		}
+	}
+
+	// (e) AI'dan parça önerisi iste.
 	recReq := aiclient.RecommendRequest{
 		UserID: userID,
 		MoodID: m.ID,
@@ -227,16 +249,15 @@ func (s *Service) GeneratePlaylist(ctx context.Context, userID uint, rawText str
 			Arousal:         analysis.Arousal,
 			Energy:          analysis.Energy,
 		},
-		Limit: limit,
-		// Context şimdilik nil — gelecekteki sprint'te kullanıcı tercihleri
-		// (geçmiş dinleme, exclude listesi) burada doldurulacak.
+		Limit:   limit,
+		Context: recContext,
 	}
 	recResp, err := s.aiClient.GetRecommendations(ctx, recReq)
 	if err != nil {
 		return nil, mapAIError(err, "recommend")
 	}
 
-	// (e) Recommendation + tracks'i tek transaction'da yaz.
+	// (f) Recommendation + tracks'i tek transaction'da yaz.
 	tracks := make([]recommendation.TrackInput, 0, len(recResp.Tracks))
 	for _, t := range recResp.Tracks {
 		tracks = append(tracks, recommendation.TrackInput{
@@ -267,7 +288,7 @@ func (s *Service) GeneratePlaylist(ctx context.Context, userID uint, rawText str
 		return nil, fmt.Errorf("%w: recommendation: %v", ErrPersistence, err)
 	}
 
-	// (f) Birleştirilmiş sonucu döndür.
+	// (g) Birleştirilmiş sonucu döndür.
 	return &GenerateResponse{
 		Mood:           m,
 		Recommendation: rec,

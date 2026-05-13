@@ -10,6 +10,7 @@ import (
 	"github.com/joho/godotenv"
 
 	"music-curation/internal/auth"
+	"music-curation/internal/interaction"
 	"music-curation/internal/middleware"
 	"music-curation/internal/mood"
 	"music-curation/internal/pipeline"
@@ -46,6 +47,7 @@ func main() {
 		&mood.Mood{},
 		&recommendation.Recommendation{},
 		&recommendation.RecommendedTrack{},
+		&interaction.TrackInteraction{},
 	); err != nil {
 		log.Fatalf("❌ Failed to auto-migrate: %v", err)
 	}
@@ -75,11 +77,13 @@ func main() {
 	recService := recommendation.NewService(recRepo)
 	recHandler := recommendation.NewHandler(recService)
 
-	// Orchestrator — moodService, recService ve aiClient'i direkt
-	// Go çağrıları ile tüketir. Bu, modular monolith'in özüdür:
-	// modüller arası iletişim aynı süreç içinde, network round-trip'i
-	// olmadan gerçekleşir.
-	pipelineService := pipeline.NewService(moodService, recService, aiClient)
+	interactionRepo := interaction.NewRepository(db)
+	interactionService := interaction.NewService(interactionRepo)
+	interactionHandler := interaction.NewHandler(interactionService)
+
+	// Orchestrator — moodService, recService, aiClient ve
+	// interactionService'i direkt Go çağrıları ile tüketir.
+	pipelineService := pipeline.NewService(moodService, recService, aiClient, interactionService)
 	pipelineHandler := pipeline.NewHandler(pipelineService)
 
 	// Token temizliği başlat.
@@ -97,6 +101,7 @@ func main() {
 		spotify.RegisterRoutes(v1, spotifyHandler)
 		mood.RegisterRoutes(v1, moodHandler)
 		recommendation.RegisterRoutes(v1, recHandler)
+		interaction.RegisterRoutes(v1, interactionHandler)
 
 		// Orchestrator endpoint'i için ek middleware: rate limiting.
 		// Sadece bu endpoint'e uygulanıyor (kullanıcı başına dakikada
