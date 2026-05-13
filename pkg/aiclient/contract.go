@@ -196,6 +196,16 @@ type RecommendContext struct {
 	// Language, kullanıcı arayüzünün dili (öneri açıklamaları
 	// "reason" alanında bu dilde dönsün diye).
 	Language string `json:"language,omitempty"`
+
+	// LikedTrackIDs, kullanıcının daha önce beğendiği parçaların
+	// Spotify ID'leri. Collaborative filtering sinyali olarak
+	// Python ML servisine iletilir.
+	LikedTrackIDs []string `json:"liked_track_ids,omitempty"`
+
+	// CollabTrackIDs, collaborative filtering (co-occurrence) sorgusu
+	// sonucunda bulunan parça ID'leridir. Benzer zevklere sahip diğer
+	// kullanıcıların beğendiği parçaları temsil eder.
+	CollabTrackIDs []string `json:"collab_track_ids,omitempty"`
 }
 
 // RecommendResponse, /recommend endpoint'inden dönen başarılı yanıtın
