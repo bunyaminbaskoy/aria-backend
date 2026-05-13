@@ -22,8 +22,8 @@ const (
 	defaultBaseURL   = "http://localhost:8000"
 	defaultTimeoutMs = 15000
 
-	analyzePath   = "/analyze"
-	recommendPath = "/recommend"
+	analyzePath   = "/api/v1/analyze"
+	recommendPath = "/api/v1/recommend"
 )
 
 // Sentinel error'lar — pipeline ve handler katmanları, hatanın türüne
