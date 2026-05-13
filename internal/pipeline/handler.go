@@ -3,6 +3,7 @@ package pipeline
 import (
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
@@ -58,10 +59,12 @@ func (h *Handler) Generate(c *gin.Context) {
 		return
 	}
 
-	// AI çağrıları için Gin'in request context'ini kullanıyoruz; kullanıcı
-	// bağlantıyı koparırsa AI HTTP isteği de iptal olur. http.Client
-	// timeout'u ayrıca üst sınır olarak çalışır.
-	result, err := h.service.GeneratePlaylist(c.Request.Context(), userID, req.Text, req.Limit)
+	if strings.TrimSpace(req.Text) == "" && strings.TrimSpace(req.MoodKey) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "text veya mood_key alanlarından en az biri gerekli"})
+		return
+	}
+
+	result, err := h.service.GeneratePlaylist(c.Request.Context(), userID, req.Text, req.MoodKey, req.Limit)
 	if err != nil {
 		writeError(c, err)
 		return

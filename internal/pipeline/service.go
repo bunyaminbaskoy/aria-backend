@@ -50,6 +50,59 @@ var (
 // defaultRecommendationLimit, request'te limit verilmediğinde kullanılır.
 const defaultRecommendationLimit = 20
 
+// moodPresets, mood_key ile gelen isteklerde /analyze çağrısını atlayarak
+// doğrudan kullanılacak önceden tanımlı analiz sonuçlarıdır.
+var moodPresets = map[string]*aiclient.AnalyzeResponse{
+	"happy": {
+		SentimentLabel: "positive", DominantEmotion: "joy",
+		Valence: 0.8, Arousal: 0.5, Energy: 0.7,
+		EmotionScores: map[string]float64{"joy": 0.9, "excitement": 0.6},
+		Language: "tr", ModelVersion: "preset-v1.0.0",
+	},
+	"sad": {
+		SentimentLabel: "negative", DominantEmotion: "sadness",
+		Valence: -0.6, Arousal: -0.4, Energy: 0.2,
+		EmotionScores: map[string]float64{"sadness": 0.8, "melancholy": 0.7},
+		Language: "tr", ModelVersion: "preset-v1.0.0",
+	},
+	"angry": {
+		SentimentLabel: "negative", DominantEmotion: "anger",
+		Valence: -0.5, Arousal: 0.8, Energy: 0.9,
+		EmotionScores: map[string]float64{"anger": 0.9, "frustration": 0.7},
+		Language: "tr", ModelVersion: "preset-v1.0.0",
+	},
+	"relaxed": {
+		SentimentLabel: "positive", DominantEmotion: "calm",
+		Valence: 0.4, Arousal: -0.6, Energy: 0.2,
+		EmotionScores: map[string]float64{"calm": 0.9, "contentment": 0.6},
+		Language: "tr", ModelVersion: "preset-v1.0.0",
+	},
+	"energetic": {
+		SentimentLabel: "positive", DominantEmotion: "excitement",
+		Valence: 0.7, Arousal: 0.9, Energy: 0.95,
+		EmotionScores: map[string]float64{"excitement": 0.9, "joy": 0.5},
+		Language: "tr", ModelVersion: "preset-v1.0.0",
+	},
+	"romantic": {
+		SentimentLabel: "positive", DominantEmotion: "love",
+		Valence: 0.6, Arousal: 0.1, Energy: 0.4,
+		EmotionScores: map[string]float64{"love": 0.9, "tenderness": 0.7},
+		Language: "tr", ModelVersion: "preset-v1.0.0",
+	},
+	"nostalgic": {
+		SentimentLabel: "mixed", DominantEmotion: "nostalgia",
+		Valence: 0.1, Arousal: -0.2, Energy: 0.3,
+		EmotionScores: map[string]float64{"nostalgia": 0.9, "melancholy": 0.4},
+		Language: "tr", ModelVersion: "preset-v1.0.0",
+	},
+	"focused": {
+		SentimentLabel: "neutral", DominantEmotion: "concentration",
+		Valence: 0.2, Arousal: 0.3, Energy: 0.5,
+		EmotionScores: map[string]float64{"focus": 0.9, "calm": 0.5},
+		Language: "tr", ModelVersion: "preset-v1.0.0",
+	},
+}
+
 // Service, sentiment analizi + RAG öneri üretimi pipeline'ının ana
 // orchestrator'ıdır. Modüller arası iletişimin tek bir noktada
 // toplandığı yerdir; tüm bağımlılıklar Go fonksiyon çağrıları ile
@@ -92,14 +145,21 @@ func NewService(
 //
 // Bu adımcı yaklaşım, kısmi başarıları gözlemlenebilir kılar; aynı
 // metin için "tekrar dene" mantığı kolayca eklenebilir.
-func (s *Service) GeneratePlaylist(ctx context.Context, userID uint, rawText string, limit int) (*GenerateResponse, error) {
-	// Erken doğrulama — DB'ye boş kayıt yazmayalım.
+func (s *Service) GeneratePlaylist(ctx context.Context, userID uint, rawText string, moodKey string, limit int) (*GenerateResponse, error) {
+	// Erken doğrulama — en az bir giriş gerekli.
 	trimmed := strings.TrimSpace(rawText)
-	if trimmed == "" {
+	moodKey = strings.TrimSpace(strings.ToLower(moodKey))
+
+	if trimmed == "" && moodKey == "" {
 		return nil, ErrEmptyText
 	}
 	if limit <= 0 {
 		limit = defaultRecommendationLimit
+	}
+
+	// mood_key varsa ve text yoksa, rawText olarak mood_key kullan.
+	if trimmed == "" {
+		trimmed = moodKey
 	}
 
 	// (a) Pending Mood kaydı oluştur.
@@ -111,19 +171,27 @@ func (s *Service) GeneratePlaylist(ctx context.Context, userID uint, rawText str
 		return nil, fmt.Errorf("%w: mood: %v", ErrPersistence, err)
 	}
 
-	// (b) AI sentiment analizi.
-	analyzeReq := aiclient.AnalyzeRequest{
-		Text:   m.RawText,
-		UserID: userID,
-	}
-	analysis, err := s.aiClient.AnalyzeMood(ctx, analyzeReq)
-	if err != nil {
-		// Mood'u "failed" olarak işaretle — gözlemlenebilirlik için.
-		// MarkFailed başarısız olsa bile orijinal AI hatasını döneriz.
-		if mfErr := s.moodService.MarkFailed(m.ID); mfErr != nil {
-			log.Printf("⚠️  Mood %d 'failed' olarak işaretlenemedi: %v", m.ID, mfErr)
+	// (b) Sentiment analizi — mood_key varsa preset kullan, yoksa AI'a sor.
+	var analysis *aiclient.AnalyzeResponse
+
+	if moodKey != "" {
+		preset, ok := moodPresets[moodKey]
+		if !ok {
+			return nil, fmt.Errorf("%w: geçersiz mood_key: %s", ErrEmptyText, moodKey)
 		}
-		return nil, mapAIError(err, "analyze")
+		analysis = preset
+	} else {
+		analyzeReq := aiclient.AnalyzeRequest{
+			Text:   m.RawText,
+			UserID: userID,
+		}
+		analysis, err = s.aiClient.AnalyzeMood(ctx, analyzeReq)
+		if err != nil {
+			if mfErr := s.moodService.MarkFailed(m.ID); mfErr != nil {
+				log.Printf("⚠️  Mood %d 'failed' olarak işaretlenemedi: %v", m.ID, mfErr)
+			}
+			return nil, mapAIError(err, "analyze")
+		}
 	}
 
 	// (c) Mood kaydını analiz sonuçlarıyla güncelle.
