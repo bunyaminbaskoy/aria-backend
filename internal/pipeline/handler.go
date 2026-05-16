@@ -64,7 +64,7 @@ func (h *Handler) Generate(c *gin.Context) {
 		return
 	}
 
-	result, err := h.service.GeneratePlaylist(c.Request.Context(), userID, req.Text, req.MoodKey, req.Limit)
+	result, err := h.service.GeneratePlaylist(c.Request.Context(), userID, req.Text, req.MoodKey, req.Limit, req.Mode)
 	if err != nil {
 		writeError(c, err)
 		return

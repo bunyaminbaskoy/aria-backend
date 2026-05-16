@@ -26,6 +26,11 @@ type GenerateRequest struct {
 	// Limit, opsiyoneldir. AI servisinden istenecek parça sayısı.
 	// Verilmezse veya 0 ise pipeline varsayılanı (20) kullanılır.
 	Limit int `json:"limit,omitempty" binding:"omitempty,min=1,max=50"`
+
+	// Mode, öneri modunu belirtir. "match" mevcut ruh halinde kalır;
+	// "shift" kullanıcıyı terapötik zıt ruh haline yönlendirir.
+	// Verilmezse "match" kullanılır.
+	Mode string `json:"mode"`
 }
 
 // GenerateResponse, orchestrator'ın frontend'e döndüğü tek atomik

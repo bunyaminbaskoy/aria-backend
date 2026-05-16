@@ -168,6 +168,11 @@ type RecommendRequest struct {
 	// olarak 20 gönderir; Python en fazla 50'yi desteklemelidir.
 	Limit int `json:"limit"`
 
+	// Mode, öneri modunu belirtir. "match" mevcut ruh halinde kalır;
+	// "shift" kullanıcıyı terapötik zıt ruh haline yönlendirir.
+	// Boş bırakılırsa Python servisi "match" kullanır.
+	Mode string `json:"mode,omitempty"`
+
 	// Context, opsiyonel kişiselleştirme bilgileridir.
 	Context *RecommendContext `json:"context,omitempty"`
 }
