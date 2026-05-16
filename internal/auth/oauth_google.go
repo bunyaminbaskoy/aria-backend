@@ -119,12 +119,11 @@ func (h *Handler) GoogleCallback(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"message": "Google authentication successful",
-		"data": AuthResponse{
-			AccessToken:  tokenPair.AccessToken,
-			RefreshToken: tokenPair.RefreshToken,
-			User:         appUser,
-		},
-	})
+	frontendURL := os.Getenv("FRONTEND_URL")
+	if frontendURL == "" {
+		frontendURL = "http://localhost:5173"
+	}
+	redirectURL := fmt.Sprintf("%s/auth/callback?access_token=%s&refresh_token=%s",
+		frontendURL, tokenPair.AccessToken, tokenPair.RefreshToken)
+	c.Redirect(http.StatusTemporaryRedirect, redirectURL)
 }
