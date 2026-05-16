@@ -15,11 +15,22 @@ import (
 //	  "text": "Bugün bahar gibiyim, biraz dansa ihtiyacım var"
 //	}
 type GenerateRequest struct {
-	Text string `json:"text" binding:"required,min=1,max=2000"`
+	// Text, kullanıcının serbest metin girişi. MoodKey boşsa zorunludur.
+	Text string `json:"text" binding:"omitempty,max=2000"`
+
+	// MoodKey, önceden tanımlı 8 ruh halinden biri: happy, sad, angry,
+	// relaxed, energetic, romantic, nostalgic, focused.
+	// Text boşsa zorunludur.
+	MoodKey string `json:"mood_key" binding:"omitempty"`
 
 	// Limit, opsiyoneldir. AI servisinden istenecek parça sayısı.
 	// Verilmezse veya 0 ise pipeline varsayılanı (20) kullanılır.
 	Limit int `json:"limit,omitempty" binding:"omitempty,min=1,max=50"`
+
+	// Mode, öneri modunu belirtir. "match" mevcut ruh halinde kalır;
+	// "shift" kullanıcıyı terapötik zıt ruh haline yönlendirir.
+	// Verilmezse "match" kullanılır.
+	Mode string `json:"mode"`
 }
 
 // GenerateResponse, orchestrator'ın frontend'e döndüğü tek atomik

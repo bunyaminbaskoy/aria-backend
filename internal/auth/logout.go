@@ -1,52 +1,83 @@
 package auth
 
 import (
+	"context"
+	"fmt"
+	"log"
 	"net/http"
-	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/redis/go-redis/v9"
 
 	"music-curation/pkg/utils"
 )
 
-// tokenBlacklist — İptal edilen token'lar.
-var (
-	tokenBlacklist     = make(map[string]time.Time)
-	tokenBlacklistLock sync.RWMutex
-)
+// blacklistClient, token kara listesi için kullanılan Redis istemcisi.
+// InitBlacklist çağrılmadıysa nil kalır; bu durumda in-process fallback
+// devre dışı bırakılır ve her token geçerli sayılır (güvenli-fail-open).
+var blacklistClient *redis.Client
 
-// BlacklistToken — Token'ı kara listeye ekle.
+// InitBlacklist, Redis istemcisini auth paketine enjekte eder.
+// main.go içinde uygulama başlangıcında tek seferlik çağrılır.
+func InitBlacklist(rdb *redis.Client) {
+	blacklistClient = rdb
+	log.Println("✅ Auth token blacklist Redis'e bağlandı")
+}
+
+// blacklistKey, token için deterministik bir Redis anahtarı üretir.
+func blacklistKey(token string) string {
+	return fmt.Sprintf("auth:blacklist:%s", token)
+}
+
+// BlacklistToken — Token'ı Redis'te kara listeye ekle.
+// TTL, token'ın gerçek son kullanma süresine göre ayarlanır;
+// bu sayede Redis süresi dolan girişleri otomatik siler.
 func BlacklistToken(token string, expiresAt time.Time) {
-	tokenBlacklistLock.Lock()
-	defer tokenBlacklistLock.Unlock()
-	tokenBlacklist[token] = expiresAt
-}
+	if blacklistClient == nil {
+		log.Println("⚠️  Blacklist Redis istemcisi başlatılmadı, token iptal edilemedi")
+		return
+	}
 
-// IsTokenBlacklisted — Token iptal edilmiş mi?
-func IsTokenBlacklisted(token string) bool {
-	tokenBlacklistLock.RLock()
-	defer tokenBlacklistLock.RUnlock()
-	_, exists := tokenBlacklist[token]
-	return exists
-}
+	ttl := time.Until(expiresAt)
+	if ttl <= 0 {
+		// Token zaten süresi dolmuş — kara listeye eklemeye gerek yok.
+		return
+	}
 
-// CleanupBlacklist — Süresi dolan token'ları temizler.
-func CleanupBlacklist() {
-	ticker := time.NewTicker(1 * time.Hour)
-	defer ticker.Stop()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
 
-	for range ticker.C {
-		tokenBlacklistLock.Lock()
-		now := time.Now()
-		for token, expiresAt := range tokenBlacklist {
-			if now.After(expiresAt) {
-				delete(tokenBlacklist, token)
-			}
-		}
-		tokenBlacklistLock.Unlock()
+	key := blacklistKey(token)
+	if err := blacklistClient.Set(ctx, key, "1", ttl).Err(); err != nil {
+		log.Printf("⚠️  Token kara listeye eklenemedi (%s): %v", key, err)
 	}
 }
+
+// IsTokenBlacklisted — Token Redis kara listesinde mi?
+func IsTokenBlacklisted(token string) bool {
+	if blacklistClient == nil {
+		return false
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	exists, err := blacklistClient.Exists(ctx, blacklistKey(token)).Result()
+	if err != nil {
+		log.Printf("⚠️  Blacklist sorgusu başarısız: %v", err)
+		// Hata durumunda güvenli-fail-open: token geçerli say.
+		return false
+	}
+	return exists > 0
+}
+
+// CleanupBlacklist — Redis otomatik TTL silme kullandığından
+// artık manuel temizlik gerekmiyor. Eski çağrı noktalarıyla
+// geriye dönük uyumluluk için boş bırakıldı.
+//
+// Deprecated: Redis TTL temizliği otomatik yapar.
+func CleanupBlacklist() {}
 
 // Logout — Token'ı iptal et, çıkış yap.
 func (h *Handler) Logout(c *gin.Context) {

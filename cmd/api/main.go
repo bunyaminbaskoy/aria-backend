@@ -6,16 +6,21 @@ import (
 	"os"
 	"time"
 
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 
 	"music-curation/internal/auth"
+	"music-curation/internal/interaction"
 	"music-curation/internal/middleware"
 	"music-curation/internal/mood"
 	"music-curation/internal/pipeline"
+	"music-curation/internal/playlist"
 	"music-curation/internal/recommendation"
+	"music-curation/internal/savedtrack"
 	"music-curation/internal/seeder"
 	"music-curation/internal/spotify"
+	"music-curation/internal/stats"
 	"music-curation/internal/user"
 	"music-curation/pkg/aiclient"
 	"music-curation/pkg/cache"
@@ -46,6 +51,10 @@ func main() {
 		&mood.Mood{},
 		&recommendation.Recommendation{},
 		&recommendation.RecommendedTrack{},
+		&interaction.TrackInteraction{},
+		&playlist.Playlist{},
+		&playlist.PlaylistTrack{},
+		&savedtrack.SavedTrack{},
 	); err != nil {
 		log.Fatalf("❌ Failed to auto-migrate: %v", err)
 	}
@@ -75,18 +84,38 @@ func main() {
 	recService := recommendation.NewService(recRepo)
 	recHandler := recommendation.NewHandler(recService)
 
-	// Orchestrator — moodService, recService ve aiClient'i direkt
-	// Go çağrıları ile tüketir. Bu, modular monolith'in özüdür:
-	// modüller arası iletişim aynı süreç içinde, network round-trip'i
-	// olmadan gerçekleşir.
-	pipelineService := pipeline.NewService(moodService, recService, aiClient)
+	interactionRepo := interaction.NewRepository(db)
+	interactionService := interaction.NewService(interactionRepo)
+	interactionHandler := interaction.NewHandler(interactionService)
+
+	playlistRepo := playlist.NewRepository(db)
+	playlistService := playlist.NewService(playlistRepo)
+	playlistHandler := playlist.NewHandler(playlistService)
+
+	savedRepo := savedtrack.NewRepository(db)
+	savedService := savedtrack.NewService(savedRepo)
+	savedHandler := savedtrack.NewHandler(savedService)
+
+	statsHandler := stats.NewHandler(db)
+
+	// Orchestrator — moodService, recService, aiClient,
+	// interactionService ve redisClient'i direkt Go çağrıları ile tüketir.
+	pipelineService := pipeline.NewService(moodService, recService, aiClient, interactionService, rdb)
 	pipelineHandler := pipeline.NewHandler(pipelineService)
 
-	// Token temizliği başlat.
-	go auth.CleanupBlacklist()
+	// Auth blacklist Redis'e taşındı — temizlik goroutine'ine gerek yok.
+	auth.InitBlacklist(rdb)
 
 	// --- HTTP router ---
 	router := gin.Default()
+	router.Use(cors.New(cors.Config{
+		AllowOrigins:     []string{"http://localhost:5173", "http://localhost:3000"},
+		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
+		ExposeHeaders:    []string{"Content-Length"},
+		AllowCredentials: true,
+		MaxAge:           12 * time.Hour,
+	}))
 	router.Use(middleware.ErrorHandler())
 
 	// /api/v1 grubu altında tüm modül route'ları kaydedilir.
@@ -97,6 +126,10 @@ func main() {
 		spotify.RegisterRoutes(v1, spotifyHandler)
 		mood.RegisterRoutes(v1, moodHandler)
 		recommendation.RegisterRoutes(v1, recHandler)
+		interaction.RegisterRoutes(v1, interactionHandler)
+		playlist.RegisterRoutes(v1, playlistHandler)
+		savedtrack.RegisterRoutes(v1, savedHandler)
+		stats.RegisterRoutes(v1, statsHandler)
 
 		// Orchestrator endpoint'i için ek middleware: rate limiting.
 		// Sadece bu endpoint'e uygulanıyor (kullanıcı başına dakikada

@@ -168,6 +168,11 @@ type RecommendRequest struct {
 	// olarak 20 gönderir; Python en fazla 50'yi desteklemelidir.
 	Limit int `json:"limit"`
 
+	// Mode, öneri modunu belirtir. "match" mevcut ruh halinde kalır;
+	// "shift" kullanıcıyı terapötik zıt ruh haline yönlendirir.
+	// Boş bırakılırsa Python servisi "match" kullanır.
+	Mode string `json:"mode,omitempty"`
+
 	// Context, opsiyonel kişiselleştirme bilgileridir.
 	Context *RecommendContext `json:"context,omitempty"`
 }
@@ -196,6 +201,16 @@ type RecommendContext struct {
 	// Language, kullanıcı arayüzünün dili (öneri açıklamaları
 	// "reason" alanında bu dilde dönsün diye).
 	Language string `json:"language,omitempty"`
+
+	// LikedTrackIDs, kullanıcının daha önce beğendiği parçaların
+	// Spotify ID'leri. Collaborative filtering sinyali olarak
+	// Python ML servisine iletilir.
+	LikedTrackIDs []string `json:"liked_track_ids,omitempty"`
+
+	// CollabTrackIDs, collaborative filtering (co-occurrence) sorgusu
+	// sonucunda bulunan parça ID'leridir. Benzer zevklere sahip diğer
+	// kullanıcıların beğendiği parçaları temsil eder.
+	CollabTrackIDs []string `json:"collab_track_ids,omitempty"`
 }
 
 // RecommendResponse, /recommend endpoint'inden dönen başarılı yanıtın
